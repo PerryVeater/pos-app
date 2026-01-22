@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.iml
+
+# Build artifacts (will be built in Docker)
+app/target
+app/.mvn/wrapper/maven-wrapper.jar
+
+# Documentation
+README.md
+*.md
+
+# CI/CD
+.github
+
+# Infrastructure
+k8s
+terraform
+.devcontainer
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
