@@ -4,10 +4,10 @@ FROM maven:3.9-eclipse-temurin-17 AS build
 # Set working directory
 WORKDIR /build
 
-# Copy the entire project first (pom.xml + .mvn + src + mvnw)
-COPY app .  
+# Copy the entire app folder (pom.xml, src, .mvn, mvnw)
+COPY app .
 
-# Ensure Maven wrapper is executable
+# Make Maven wrapper executable
 RUN chmod +x ./mvnw
 
 # Download dependencies (cached if pom.xml unchanged)
