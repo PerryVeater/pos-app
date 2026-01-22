@@ -12,9 +12,6 @@ COPY app/mvnw .
 # Make Maven wrapper executable
 RUN chmod +x ./mvnw
 
-# Resolve dependencies (safe alternative to go-offline)
-RUN ./mvnw dependency:resolve -B
-
 # Copy source code
 COPY app/src ./src
 
