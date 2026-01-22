@@ -23,6 +23,7 @@ jobs:
 
       - name: Build Maven project
         run: mvn -B clean install
+        working-directory: app
 
       - name: Run tests
         run: mvn test
