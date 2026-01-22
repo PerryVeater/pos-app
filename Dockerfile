@@ -4,17 +4,14 @@ FROM maven:3.9-eclipse-temurin-17 AS build
 # Set working directory
 WORKDIR /build
 
-# Copy Maven wrapper and pom.xml first (for better layer caching)
-COPY app/pom.xml .
-COPY app/.mvn ./.mvn
-COPY app/mvnw .
+# Copy the entire project first (pom.xml + .mvn + src + mvnw)
+COPY app .  
+
+# Ensure Maven wrapper is executable
 RUN chmod +x ./mvnw
 
-# Download dependencies (this layer will be cached if pom.xml doesn't change)
+# Download dependencies (cached if pom.xml unchanged)
 RUN ./mvnw dependency:go-offline -B
-
-# Copy source code
-COPY app/src ./src
 
 # Build the application (produces posapp-1.0.0.jar in target/)
 RUN ./mvnw clean package -DskipTests -B
