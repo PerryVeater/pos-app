@@ -33,4 +33,4 @@ jobs:
         uses: docker/setup-buildx-action@v2
 
       - name: Build Docker image
-        run: docker build --no-cache -t pos-app .
+        run: docker build -t pos-app .
