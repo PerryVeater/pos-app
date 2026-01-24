@@ -74,4 +74,13 @@ public class Product {
      * @param price the price of the product
      */
     public void setPrice(double price) { this.price = price; }
+
+    /**
+     * Return a string representation of the product.
+     * @return a string representation of the product
+     */
+    @Override
+    public String toString() {
+        return "Product{id=" + id + ", name='" + name + "', price=" + price + "}";
+    }
 }
