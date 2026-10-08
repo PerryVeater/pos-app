@@ -20,3 +20,26 @@ application startup. Hibernate runs with `ddl-auto=validate`, so it verifies
 the schema against the JPA model instead of modifying it. Databases created
 before Flyway was introduced are baselined automatically on first startup
 (`spring.flyway.baseline-on-migrate=true`) and are not recreated.
+
+## Local PostgreSQL (development)
+
+Start the database:
+
+    docker compose up -d
+
+Wait until the `pos-postgres` container reports `healthy` (`docker compose ps`),
+then start the application from `app/` with `mvnw spring-boot:run` or
+`java -jar target/posapp-1.0.0.jar`. On startup Flyway applies
+`V1__create_product_table.sql` and Hibernate validates the schema.
+
+Credentials default to the local development values (`posdb`/`posuser`/
+`pospassword` on `localhost:5432`) and can be overridden with `POSTGRES_*`
+environment variables (Compose) or `SPRING_DATASOURCE_*` environment
+variables (application). Data persists in the `pgdata` named volume:
+`docker compose down` keeps it, `docker compose down -v` deletes it.
+
+Quick schema verification:
+
+    docker compose exec postgres psql -U posuser -d posdb \
+      -c "SELECT installed_rank, version, description, success FROM flyway_schema_history;" \
+      -c "SELECT column_name, data_type, numeric_precision, numeric_scale FROM information_schema.columns WHERE table_name = 'product' ORDER BY ordinal_position;"
