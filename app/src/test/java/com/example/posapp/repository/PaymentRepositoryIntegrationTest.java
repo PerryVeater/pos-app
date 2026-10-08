@@ -24,6 +24,7 @@ import com.example.posapp.entity.Payment;
 import com.example.posapp.entity.PaymentMethod;
 import com.example.posapp.entity.PaymentStatus;
 import com.example.posapp.entity.Product;
+import com.example.posapp.exception.PaymentNotFoundException;
 import com.example.posapp.exception.PaymentValidationException;
 import com.example.posapp.service.PaymentService;
 
@@ -305,5 +306,64 @@ class PaymentRepositoryIntegrationTest {
         paymentRepository.deleteById(payment.getId());
         orderRepository.deleteById(savedOrder.getId());
         productRepository.deleteById(product.getId());
+    }
+
+    // --- PaymentService transitionStatus tests against real database ---
+
+    @Test
+    @DisplayName("PaymentService.transitionStatus: PENDING → COMPLETED is persisted and reloaded")
+    void transitionStatusPendingToCompletedIsPersisted() {
+        Product product = productRepository.save(
+                new Product("Trans Product 1", "PAY-PROD-010", new BigDecimal("20.00"), true));
+        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.now());
+        order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
+        Order savedOrder = orderRepository.save(order);
+
+        Payment payment = paymentService.createPayment(
+                savedOrder.getId(), new BigDecimal("20.00"), PaymentMethod.CARD);
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+
+        Payment transitioned = paymentService.transitionStatus(payment.getId(), PaymentStatus.COMPLETED);
+        assertThat(transitioned.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+
+        Payment reloaded = paymentRepository.findById(payment.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+
+        // Cleanup
+        paymentRepository.deleteById(payment.getId());
+        orderRepository.deleteById(savedOrder.getId());
+        productRepository.deleteById(product.getId());
+    }
+
+    @Test
+    @DisplayName("PaymentService.transitionStatus: invalid transition throws PaymentValidationException")
+    void transitionStatusInvalidTransitionThrows() {
+        Product product = productRepository.save(
+                new Product("Trans Product 2", "PAY-PROD-011", new BigDecimal("20.00"), true));
+        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.now());
+        order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
+        Order savedOrder = orderRepository.save(order);
+
+        Payment payment = paymentService.createPayment(
+                savedOrder.getId(), new BigDecimal("20.00"), PaymentMethod.CARD);
+
+        assertThatThrownBy(() ->
+                paymentService.transitionStatus(payment.getId(), PaymentStatus.REFUNDED))
+                .isInstanceOf(PaymentValidationException.class)
+                .hasMessageContaining("Cannot transition from PENDING to REFUNDED");
+
+        // Cleanup
+        paymentRepository.deleteById(payment.getId());
+        orderRepository.deleteById(savedOrder.getId());
+        productRepository.deleteById(product.getId());
+    }
+
+    @Test
+    @DisplayName("PaymentService.transitionStatus: missing payment throws PaymentNotFoundException")
+    void transitionStatusMissingPaymentThrowsNotFound() {
+        assertThatThrownBy(() ->
+                paymentService.transitionStatus(999L, PaymentStatus.COMPLETED))
+                .isInstanceOf(PaymentNotFoundException.class)
+                .hasMessageContaining("Payment not found: 999");
     }
 }

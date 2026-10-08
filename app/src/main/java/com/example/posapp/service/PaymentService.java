@@ -11,6 +11,7 @@ import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.Payment;
 import com.example.posapp.entity.PaymentMethod;
 import com.example.posapp.entity.PaymentStatus;
+import com.example.posapp.exception.PaymentNotFoundException;
 import com.example.posapp.exception.PaymentValidationException;
 import com.example.posapp.repository.OrderRepository;
 import com.example.posapp.repository.PaymentRepository;
@@ -24,6 +25,7 @@ import com.example.posapp.repository.PaymentRepository;
  *   <li>Payments cannot be created for {@link OrderStatus#CANCELLED} orders.</li>
  *   <li>Payment amount must be greater than zero.</li>
  *   <li>The payment starts in {@link PaymentStatus#PENDING} status.</li>
+ *   <li>Status transitions are enforced (see {@link #transitionStatus}).</li>
  * </ul>
  * </p>
  */
@@ -91,5 +93,53 @@ public class PaymentService {
      */
     public Optional<Payment> getPaymentById(Long id) {
         return paymentRepo.findById(id);
+    }
+
+    /**
+     * Transition a {@link Payment} to a new status.
+     * <p>
+     * Allowed transitions:
+     * <ul>
+     *   <li>{@link PaymentStatus#PENDING} → {@link PaymentStatus#COMPLETED}</li>
+     *   <li>{@link PaymentStatus#PENDING} → {@link PaymentStatus#FAILED}</li>
+     *   <li>{@link PaymentStatus#COMPLETED} → {@link PaymentStatus#REFUNDED}</li>
+     * </ul>
+     * Terminal states ({@link PaymentStatus#FAILED}, {@link PaymentStatus#REFUNDED})
+     * cannot be transitioned further. All other transitions are rejected with
+     * {@link PaymentValidationException}.
+     * </p>
+     *
+     * @param paymentId the ID of the payment to transition
+     * @param newStatus the target status
+     * @return the updated {@link Payment}
+     * @throws PaymentNotFoundException if the payment does not exist
+     * @throws PaymentValidationException if the transition is not allowed
+     */
+    public Payment transitionStatus(Long paymentId, PaymentStatus newStatus) {
+        Payment payment = paymentRepo.findById(paymentId)
+                .orElseThrow(() -> new PaymentNotFoundException(paymentId));
+
+        PaymentStatus currentStatus = payment.getStatus();
+        if (!isAllowedTransition(currentStatus, newStatus)) {
+            throw new PaymentValidationException(
+                    "Cannot transition from " + currentStatus + " to " + newStatus);
+        }
+
+        payment.setStatus(newStatus);
+        return paymentRepo.save(payment);
+    }
+
+    /**
+     * Check whether a status transition is allowed.
+     * @param from the current status
+     * @param to the target status
+     * @return {@code true} if the transition is allowed, {@code false} otherwise
+     */
+    private boolean isAllowedTransition(PaymentStatus from, PaymentStatus to) {
+        return switch (from) {
+            case PENDING -> to == PaymentStatus.COMPLETED || to == PaymentStatus.FAILED;
+            case COMPLETED -> to == PaymentStatus.REFUNDED;
+            case FAILED, REFUNDED -> false;
+        };
     }
 }
