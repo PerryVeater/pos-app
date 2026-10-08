@@ -1,15 +1,18 @@
 package com.example.posapp.exception;
 
+import java.util.stream.Collectors;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
- * Global exception handler that maps service-layer exceptions to HTTP status
- * codes, so client errors are reported as 4xx responses carrying RFC 9457
- * problem details instead of escaping the DispatcherServlet and surfacing as
- * server errors.
+ * Global exception handler that maps service-layer exceptions and request
+ * validation failures to HTTP status codes, so client errors are reported as
+ * 4xx responses carrying RFC 9457 problem details instead of escaping the
+ * DispatcherServlet and surfacing as server errors.
  */
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -32,6 +35,21 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleIllegalArgument(IllegalArgumentException ex) {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage());
+    }
+
+    /**
+     * Map request-body validation failures to HTTP 400, joining the field
+     * errors into the problem detail.
+     * @param ex the exception raised by validating a request body
+     * @return a problem detail listing the constraint violations
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ProblemDetail handleValidationFailure(MethodArgumentNotValidException ex) {
+        String detail = ex.getBindingResult().getFieldErrors().stream()
+                .map(error -> error.getField() + ": " + error.getDefaultMessage())
+                .sorted()
+                .collect(Collectors.joining("; "));
+        return problem(HttpStatus.BAD_REQUEST, "Validation failed", detail);
     }
 
     /**

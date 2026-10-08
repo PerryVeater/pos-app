@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -104,16 +105,51 @@ class ProductControllerTest {
     @Test
     @DisplayName("POST /products with a negative price returns 400 Bad Request")
     void postNegativePriceReturns400() throws Exception {
-        when(productService.createProduct(any(Product.class)))
-                .thenThrow(new IllegalArgumentException("Price cannot be negative"));
-
         mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Broken\",\"price\":-1.0}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.title").value("Invalid request"))
-                .andExpect(jsonPath("$.detail").value("Price cannot be negative"));
+                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.detail").value(containsString("price")));
+    }
+
+    @Test
+    @DisplayName("POST /products with a blank name returns 400 Bad Request")
+    void postBlankNameReturns400() throws Exception {
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"   \",\"price\":2.50}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.detail").value(containsString("name")));
+    }
+
+    @Test
+    @DisplayName("POST /products with a missing price returns 400 Bad Request")
+    void postMissingPriceReturns400() throws Exception {
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Cola\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.detail").value(containsString("price")));
+    }
+
+    @Test
+    @DisplayName("POST /products with a zero price returns the saved product")
+    void postZeroPriceReturnsSavedProduct() throws Exception {
+        when(productService.createProduct(any(Product.class)))
+                .thenReturn(new Product("Tap water", new BigDecimal("0.00")));
+
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Tap water\",\"price\":0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Tap water"))
+                .andExpect(jsonPath("$.price").value(0.0));
     }
 
     // --- PUT /products/{id} ---
@@ -135,15 +171,13 @@ class ProductControllerTest {
     @Test
     @DisplayName("PUT /products/{id} with a negative price returns 400 Bad Request")
     void putNegativePriceReturns400() throws Exception {
-        when(productService.updateProduct(eq(1L), any(Product.class)))
-                .thenThrow(new IllegalArgumentException("Price cannot be negative"));
-
         mockMvc.perform(put("/products/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Cola\",\"price\":-1.0}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.title").value("Invalid request"))
-                .andExpect(jsonPath("$.detail").value("Price cannot be negative"));
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.detail").value(containsString("price")));
     }
 
     @Test
