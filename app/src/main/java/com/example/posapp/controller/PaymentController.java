@@ -3,6 +3,7 @@ package com.example.posapp.controller;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.example.posapp.dto.PaymentRequest;
 import com.example.posapp.dto.PaymentResponse;
+import com.example.posapp.dto.PaymentStatusUpdateRequest;
 import com.example.posapp.entity.Payment;
 import com.example.posapp.exception.PaymentNotFoundException;
 import com.example.posapp.service.PaymentService;
@@ -70,6 +72,28 @@ public class PaymentController {
     public ResponseEntity<PaymentResponse> getPayment(@PathVariable Long id) {
         Payment payment = paymentService.getPaymentById(id)
                 .orElseThrow(() -> new PaymentNotFoundException(id));
+        return ResponseEntity.ok(PaymentResponse.from(payment));
+    }
+
+    /**
+     * Transition a payment's status.
+     * <p>
+     * Delegates to {@link PaymentService#transitionStatus} which enforces the
+     * allowed transition rules. Returns HTTP 200 with the updated payment on
+     * success. Invalid transitions throw {@link com.example.posapp.exception.PaymentValidationException}
+     * (mapped to 400). Missing payments throw {@link PaymentNotFoundException}
+     * (mapped to 404).
+     * </p>
+     *
+     * @param id the payment ID
+     * @param request the status update request containing the target status
+     * @return the updated payment as a response DTO
+     */
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<PaymentResponse> updatePaymentStatus(
+            @PathVariable Long id,
+            @RequestBody PaymentStatusUpdateRequest request) {
+        Payment payment = paymentService.transitionStatus(id, request.status());
         return ResponseEntity.ok(PaymentResponse.from(payment));
     }
 }

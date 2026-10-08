@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -22,6 +23,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.example.posapp.dto.PaymentRequest;
+import com.example.posapp.dto.PaymentStatusUpdateRequest;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.Payment;
@@ -163,6 +165,77 @@ class PaymentControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Payment not found"))
                 .andExpect(jsonPath("$.detail").value("Payment not found: 99"));
+    }
+
+    // --- PATCH /api/v1/payments/{id}/status ---
+
+    @Test
+    @DisplayName("PATCH /api/v1/payments/{id}/status: valid transition returns 200 with updated payment")
+    void patchValidTransitionReturns200() throws Exception {
+        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.of(2026, 10, 7, 12, 0));
+        setField(order, "id", 1L);
+        Payment payment = new Payment(
+                order, new BigDecimal("25.00"), PaymentMethod.CARD,
+                PaymentStatus.COMPLETED, LocalDateTime.of(2026, 10, 7, 12, 0));
+        payment.setId(1L);
+
+        when(paymentService.transitionStatus(1L, PaymentStatus.COMPLETED)).thenReturn(payment);
+
+        PaymentStatusUpdateRequest request = new PaymentStatusUpdateRequest(PaymentStatus.COMPLETED);
+
+        mockMvc.perform(patch("/api/v1/payments/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.orderId").value(1));
+
+        verify(paymentService).transitionStatus(1L, PaymentStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/payments/{id}/status: invalid transition returns 400")
+    void patchInvalidTransitionReturns400() throws Exception {
+        when(paymentService.transitionStatus(1L, PaymentStatus.REFUNDED))
+                .thenThrow(new PaymentValidationException("Cannot transition from PENDING to REFUNDED"));
+
+        PaymentStatusUpdateRequest request = new PaymentStatusUpdateRequest(PaymentStatus.REFUNDED);
+
+        mockMvc.perform(patch("/api/v1/payments/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid payment"))
+                .andExpect(jsonPath("$.detail").value("Cannot transition from PENDING to REFUNDED"));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/payments/{id}/status: missing payment returns 404")
+    void patchMissingPaymentReturns404() throws Exception {
+        when(paymentService.transitionStatus(99L, PaymentStatus.COMPLETED))
+                .thenThrow(new PaymentNotFoundException(99L));
+
+        PaymentStatusUpdateRequest request = new PaymentStatusUpdateRequest(PaymentStatus.COMPLETED);
+
+        mockMvc.perform(patch("/api/v1/payments/99/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Payment not found"))
+                .andExpect(jsonPath("$.detail").value("Payment not found: 99"));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/payments/{id}/status: invalid status value returns 400")
+    void patchInvalidStatusValueReturns400() throws Exception {
+        String invalidJson = "{\"status\":\"INVALID_STATUS\"}";
+
+        mockMvc.perform(patch("/api/v1/payments/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(invalidJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid request body"));
     }
 
     /**
