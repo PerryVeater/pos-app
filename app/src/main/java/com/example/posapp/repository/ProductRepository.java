@@ -35,4 +35,19 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
      * @return {@code true} if a product with the given name exists
      */
     boolean existsByName(String name);
+
+    /**
+     * Check whether a product with the given SKU exists.
+     * @param sku the SKU of the product
+     * @return {@code true} if a product with the given SKU exists
+     */
+    boolean existsBySku(String sku);
+
+    /**
+     * Check whether a product other than the one with the given ID uses the SKU.
+     * @param sku the SKU to check for conflicts
+     * @param id the ID of the product being updated, excluded from the check
+     * @return {@code true} if another product already uses the given SKU
+     */
+    boolean existsBySkuAndIdNot(String sku, Long id);
 }

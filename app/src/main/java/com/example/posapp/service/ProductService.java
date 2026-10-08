@@ -42,34 +42,48 @@ public class ProductService {
 
    /**
      * Create a new {@link Product}.
-     * Validates that the price is present and non-negative before saving.
+     * Validates that the price is present and non-negative and that the SKU
+     * is present and not already used by another product before saving.
      *
      * @param product the Product to create
      * @return the saved Product
-     * @throws IllegalArgumentException if the product price is missing or negative
+     * @throws IllegalArgumentException if the product price is missing or negative,
+     *         the SKU is missing or too long, or the SKU is already in use
      */
     public Product createProduct(Product product) {
         validatePrice(product.getPrice());
+        validateSku(product.getSku());
+        if (productRepo.existsBySku(product.getSku())) {
+            throw new IllegalArgumentException("SKU already exists: " + product.getSku());
+        }
         return productRepo.save(product);
     }
 
     /**
      * Update an existing {@link Product}.
      * Validates that the price is present and non-negative and that the
-     * {@link Product} exists before updating.
+     * {@link Product} exists before updating. The SKU is rejected when another
+     * product already uses it; keeping the product's own SKU is allowed.
      *
      * @param id the ID of the {@link Product} to update
      * @param updatedProduct the updated {@link Product} data
      * @return the updated {@link Product}
-     * @throws IllegalArgumentException if the product price is missing or negative
+     * @throws IllegalArgumentException if the product price is missing or negative,
+     *         the SKU is missing or too long, or the SKU is used by another product
      * @throws ProductNotFoundException if the {@link Product} does not exist
      */
     public Product updateProduct(Long id, Product updatedProduct) {
         validatePrice(updatedProduct.getPrice());
+        validateSku(updatedProduct.getSku());
         return productRepo.findById(id)
             .map(existing -> {
+                if (productRepo.existsBySkuAndIdNot(updatedProduct.getSku(), id)) {
+                    throw new IllegalArgumentException("SKU already exists: " + updatedProduct.getSku());
+                }
                 existing.setName(updatedProduct.getName());
+                existing.setSku(updatedProduct.getSku());
                 existing.setPrice(updatedProduct.getPrice());
+                existing.setActive(updatedProduct.isActive());
                 return productRepo.save(existing);
             })
             .orElseThrow(() -> new ProductNotFoundException(id));
@@ -120,6 +134,23 @@ public class ProductService {
         }
         if (price.signum() < 0) {
             throw new IllegalArgumentException("Price cannot be negative");
+        }
+    }
+
+    /**
+     * Reject missing, blank, or over-long SKUs for any write operation.
+     * Mirrors the API boundary rules and the VARCHAR(64) column so direct
+     * service callers cannot bypass them.
+     * @param sku the SKU to validate
+     * @throws IllegalArgumentException if the SKU is missing, blank, or longer
+     *         than 64 characters
+     */
+    private static void validateSku(String sku) {
+        if (sku == null || sku.isBlank()) {
+            throw new IllegalArgumentException("SKU must be provided");
+        }
+        if (sku.length() > 64) {
+            throw new IllegalArgumentException("SKU must be at most 64 characters");
         }
     }
 }

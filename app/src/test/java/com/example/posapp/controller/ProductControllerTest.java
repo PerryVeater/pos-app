@@ -22,6 +22,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -35,8 +36,9 @@ import com.example.posapp.service.ProductService;
  * <p>
  * The {@link ProductService} is replaced with a Mockito mock, so these tests
  * verify the HTTP contract only: routing, status codes, the JSON
- * representation of {@link Product}, and the RFC 9457 problem-details
- * responses returned for client errors.
+ * representation of {@link Product} (including {@code sku} and
+ * {@code active}), and the RFC 9457 problem-details responses returned for
+ * client errors.
  * </p>
  */
 @WebMvcTest(ProductController.class)
@@ -54,15 +56,18 @@ class ProductControllerTest {
     @DisplayName("GET /products returns all products as a JSON array")
     void getProductsReturnsAllProducts() throws Exception {
         when(productService.getAllProducts()).thenReturn(List.of(
-                new Product("Cola", new BigDecimal("2.50")),
-                new Product("Fries", new BigDecimal("4.25"))));
+                new Product("Cola", "COLA-001", new BigDecimal("2.50"), true),
+                new Product("Fries", "FRIES-001", new BigDecimal("4.25"), false)));
 
         mockMvc.perform(get("/products"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[0].name").value("Cola"))
-                .andExpect(jsonPath("$[1].price").value(4.25));
+                .andExpect(jsonPath("$[0].sku").value("COLA-001"))
+                .andExpect(jsonPath("$[0].active").value(true))
+                .andExpect(jsonPath("$[1].price").value(4.25))
+                .andExpect(jsonPath("$[1].active").value(false));
     }
 
     // --- GET /products/{id} ---
@@ -70,12 +75,15 @@ class ProductControllerTest {
     @Test
     @DisplayName("GET /products/{id} returns the product when it exists")
     void getProductReturnsProduct() throws Exception {
-        when(productService.getProductById(1L)).thenReturn(Optional.of(new Product("Cola", new BigDecimal("2.50"))));
+        when(productService.getProductById(1L))
+                .thenReturn(Optional.of(new Product("Cola", "COLA-001", new BigDecimal("2.50"), true)));
 
         mockMvc.perform(get("/products/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Cola"))
-                .andExpect(jsonPath("$.price").value(2.50));
+                .andExpect(jsonPath("$.sku").value("COLA-001"))
+                .andExpect(jsonPath("$.price").value(2.50))
+                .andExpect(jsonPath("$.active").value(true));
     }
 
     @Test
@@ -90,16 +98,19 @@ class ProductControllerTest {
     // --- POST /products ---
 
     @Test
-    @DisplayName("POST /products with a valid product returns the saved product")
+    @DisplayName("POST /products with a valid product (including a valid SKU) returns the saved product")
     void postProductReturnsSavedProduct() throws Exception {
-        when(productService.createProduct(any(Product.class))).thenReturn(new Product("Cola", new BigDecimal("2.50")));
+        when(productService.createProduct(any(Product.class)))
+                .thenReturn(new Product("Cola", "COLA-001", new BigDecimal("2.50"), true));
 
         mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Cola\",\"price\":2.50}"))
+                        .content("{\"name\":\"Cola\",\"sku\":\"COLA-001\",\"price\":2.50}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Cola"))
-                .andExpect(jsonPath("$.price").value(2.50));
+                .andExpect(jsonPath("$.sku").value("COLA-001"))
+                .andExpect(jsonPath("$.price").value(2.50))
+                .andExpect(jsonPath("$.active").value(true));
     }
 
     @Test
@@ -107,7 +118,7 @@ class ProductControllerTest {
     void postNegativePriceReturns400() throws Exception {
         mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Broken\",\"price\":-1.0}"))
+                        .content("{\"name\":\"Broken\",\"sku\":\"COLA-001\",\"price\":-1.0}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.title").value("Validation failed"))
@@ -119,7 +130,7 @@ class ProductControllerTest {
     void postBlankNameReturns400() throws Exception {
         mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"   \",\"price\":2.50}"))
+                        .content("{\"name\":\"   \",\"sku\":\"COLA-001\",\"price\":2.50}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.title").value("Validation failed"))
@@ -131,7 +142,7 @@ class ProductControllerTest {
     void postMissingPriceReturns400() throws Exception {
         mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Cola\"}"))
+                        .content("{\"name\":\"Cola\",\"sku\":\"COLA-001\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.title").value("Validation failed"))
@@ -139,14 +150,110 @@ class ProductControllerTest {
     }
 
     @Test
-    @DisplayName("POST /products with a zero price returns the saved product")
-    void postZeroPriceReturnsSavedProduct() throws Exception {
-        when(productService.createProduct(any(Product.class)))
-                .thenReturn(new Product("Tap water", new BigDecimal("0.00")));
+    @DisplayName("POST /products with a blank SKU returns 400 Bad Request")
+    void postBlankSkuReturns400() throws Exception {
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Cola\",\"sku\":\"   \",\"price\":2.50}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.detail").value(containsString("sku")));
+    }
+
+    @Test
+    @DisplayName("POST /products with a missing SKU returns 400 Bad Request")
+    void postMissingSkuReturns400() throws Exception {
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Cola\",\"price\":2.50}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.detail").value(containsString("sku")));
+    }
+
+    @Test
+    @DisplayName("POST /products with a SKU longer than 64 characters returns 400 Bad Request")
+    void postTooLongSkuReturns400() throws Exception {
+        String tooLongSku = "S".repeat(65);
 
         mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Tap water\",\"price\":0}"))
+                        .content("{\"name\":\"Cola\",\"sku\":\"" + tooLongSku + "\",\"price\":2.50}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.detail").value(containsString("sku")));
+    }
+
+    @Test
+    @DisplayName("POST /products without active defaults the new product to active=true")
+    void postOmittedActiveDefaultsToTrue() throws Exception {
+        when(productService.createProduct(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Cola\",\"sku\":\"COLA-001\",\"price\":2.50}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Cola"))
+                .andExpect(jsonPath("$.sku").value("COLA-001"))
+                .andExpect(jsonPath("$.active").value(true));
+    }
+
+    @Test
+    @DisplayName("POST /products with an explicitly inactive product is accepted")
+    void postExplicitInactiveProductIsAccepted() throws Exception {
+        when(productService.createProduct(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Legacy Cola\",\"sku\":\"COLA-002\",\"price\":2.50,\"active\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Legacy Cola"))
+                .andExpect(jsonPath("$.sku").value("COLA-002"))
+                .andExpect(jsonPath("$.active").value(false));
+    }
+
+    @Test
+    @DisplayName("POST /products with a duplicate SKU returns 400 Bad Request")
+    void postDuplicateSkuReturns400() throws Exception {
+        when(productService.createProduct(any(Product.class)))
+                .thenThrow(new IllegalArgumentException("SKU already exists: COLA-001"));
+
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Cola\",\"sku\":\"COLA-001\",\"price\":2.50}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Invalid request"))
+                .andExpect(jsonPath("$.detail").value(containsString("SKU already exists")));
+    }
+
+    @Test
+    @DisplayName("POST /products rejected by the database unique constraint returns 400 Bad Request")
+    void postDuplicateSkuRejectedByDatabaseReturns400() throws Exception {
+        when(productService.createProduct(any(Product.class)))
+                .thenThrow(new DataIntegrityViolationException(
+                        "duplicate key value violates unique constraint \"uk_product_sku\""));
+
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Cola\",\"sku\":\"COLA-001\",\"price\":2.50}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Conflicting data"));
+    }
+
+    @Test
+    @DisplayName("POST /products with a zero price returns the saved product")
+    void postZeroPriceReturnsSavedProduct() throws Exception {
+        when(productService.createProduct(any(Product.class)))
+                .thenReturn(new Product("Tap water", "WATER-001", new BigDecimal("0.00"), true));
+
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Tap water\",\"sku\":\"WATER-001\",\"price\":0}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Tap water"))
                 .andExpect(jsonPath("$.price").value(0.0));
@@ -158,14 +265,16 @@ class ProductControllerTest {
     @DisplayName("PUT /products/{id} returns the updated product")
     void putProductReturnsUpdatedProduct() throws Exception {
         when(productService.updateProduct(eq(1L), any(Product.class)))
-                .thenReturn(new Product("Cola Zero", new BigDecimal("3.00")));
+                .thenReturn(new Product("Cola Zero", "COLA-001", new BigDecimal("3.00"), false));
 
         mockMvc.perform(put("/products/1")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Cola Zero\",\"price\":3.00}"))
+                        .content("{\"name\":\"Cola Zero\",\"sku\":\"COLA-001\",\"price\":3.00,\"active\":false}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Cola Zero"))
-                .andExpect(jsonPath("$.price").value(3.00));
+                .andExpect(jsonPath("$.sku").value("COLA-001"))
+                .andExpect(jsonPath("$.price").value(3.00))
+                .andExpect(jsonPath("$.active").value(false));
     }
 
     @Test
@@ -173,7 +282,7 @@ class ProductControllerTest {
     void putNegativePriceReturns400() throws Exception {
         mockMvc.perform(put("/products/1")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Cola\",\"price\":-1.0}"))
+                        .content("{\"name\":\"Cola\",\"sku\":\"COLA-001\",\"price\":-1.0}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.title").value("Validation failed"))
@@ -188,7 +297,7 @@ class ProductControllerTest {
 
         mockMvc.perform(put("/products/99")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Ghost\",\"price\":1.0}"))
+                        .content("{\"name\":\"Ghost\",\"sku\":\"GHOST-001\",\"price\":1.0}"))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.title").value("Product not found"));

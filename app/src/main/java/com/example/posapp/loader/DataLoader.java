@@ -37,6 +37,12 @@ public class DataLoader implements CommandLineRunner {
      */
     private static final String SEED_PRODUCT_NAME = "Test Product";
 
+    /**
+     * SKU of the demo product: a stable, caller-style identifier so the seed
+     * row satisfies the NOT NULL / UNIQUE sku column.
+     */
+    private static final String SEED_PRODUCT_SKU = "TEST-PRODUCT-001";
+
     private final ProductRepository productRepository;
 
     /**
@@ -60,7 +66,7 @@ public class DataLoader implements CommandLineRunner {
         }
 
         // Save the seed product only on first use
-        Product p = new Product(SEED_PRODUCT_NAME, new BigDecimal("19.99"));
+        Product p = new Product(SEED_PRODUCT_NAME, SEED_PRODUCT_SKU, new BigDecimal("19.99"), true);
         productRepository.save(p);
 
         // Fetch all products

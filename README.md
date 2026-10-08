@@ -15,11 +15,14 @@ This project demonstrates a production-style Point-of-Sale (POS) system.
 
 The database schema is managed by [Flyway](https://flywaydb.org). Versioned
 migrations live in `app/src/main/resources/db/migration`
-(e.g. `V1__create_product_table.sql`) and are applied automatically at
-application startup. Hibernate runs with `ddl-auto=validate`, so it verifies
-the schema against the JPA model instead of modifying it. Databases created
-before Flyway was introduced are baselined automatically on first startup
-(`spring.flyway.baseline-on-migrate=true`) and are not recreated.
+(`V1__create_product_table.sql`, `V2__add_product_sku_and_active.sql`) and
+are applied automatically at application startup. Each product carries a
+caller-supplied, unique `sku` (the stable identifier used by POS systems) and
+an `active` flag (products are deactivated rather than deleted). Hibernate
+runs with `ddl-auto=validate`, so it verifies the schema against the JPA
+model instead of modifying it. Databases created before Flyway was introduced
+are baselined automatically on first startup (`spring.flyway.baseline-on-migrate=true`)
+and are not recreated.
 
 ## Local PostgreSQL (development)
 
@@ -29,8 +32,8 @@ Start the database:
 
 Wait until the `pos-postgres` container reports `healthy` (`docker compose ps`),
 then start the application from `app/` with `mvnw spring-boot:run` or
-`java -jar target/posapp-1.0.0.jar`. On startup Flyway applies
-`V1__create_product_table.sql` and Hibernate validates the schema.
+`java -jar target/posapp-1.0.0.jar`. On startup Flyway applies the versioned
+migrations and Hibernate validates the schema.
 
 Credentials default to the local development values (`posdb`/`posuser`/
 `pospassword` on `localhost:5432`) and can be overridden with `POSTGRES_*`

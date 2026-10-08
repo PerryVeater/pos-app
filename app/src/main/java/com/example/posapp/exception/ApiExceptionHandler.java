@@ -2,6 +2,7 @@ package com.example.posapp.exception;
 
 import java.util.stream.Collectors;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -35,6 +36,20 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleIllegalArgument(IllegalArgumentException ex) {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage());
+    }
+
+    /**
+     * Map a database integrity violation (e.g. a duplicate SKU that slipped
+     * past the service-level check in a concurrent request) to HTTP 400 Bad
+     * Request, so constraint enforcement surfaces as a client error instead
+     * of a generic server error.
+     * @param ex the exception raised by the persistence layer
+     * @return a problem detail describing the conflict
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ProblemDetail handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Conflicting data",
+                "The request violates a data constraint: " + ex.getMostSpecificCause().getMessage());
     }
 
     /**

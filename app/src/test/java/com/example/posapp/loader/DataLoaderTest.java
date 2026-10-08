@@ -24,7 +24,8 @@ import com.example.posapp.repository.ProductRepository;
  * <p>
  * The repository is mocked, so these tests verify the seed decision (create
  * on first run, skip when the seed product already exists) and the exact
- * interaction with the repository. No Spring context or database is required.
+ * product seeded (name, SKU, price, active). No Spring context or database
+ * is required.
  * </p>
  */
 @ExtendWith(MockitoExtension.class)
@@ -48,8 +49,8 @@ class DataLoaderTest {
     }
 
     @Test
-    @DisplayName("run: the seeded product keeps its name and price")
-    void runSeedsExpectedNameAndPrice() throws Exception {
+    @DisplayName("run: the seeded product keeps its name, SKU, price, and active state")
+    void runSeedsExpectedProductFields() throws Exception {
         when(productRepository.existsByName("Test Product")).thenReturn(false);
 
         dataLoader.run();
@@ -57,7 +58,9 @@ class DataLoaderTest {
         ArgumentCaptor<Product> saved = ArgumentCaptor.forClass(Product.class);
         verify(productRepository).save(saved.capture());
         assertThat(saved.getValue().getName()).isEqualTo("Test Product");
+        assertThat(saved.getValue().getSku()).isEqualTo("TEST-PRODUCT-001");
         assertThat(saved.getValue().getPrice()).isEqualByComparingTo("19.99");
+        assertThat(saved.getValue().isActive()).isTrue();
     }
 
     @Test
