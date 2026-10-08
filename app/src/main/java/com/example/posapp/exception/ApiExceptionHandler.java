@@ -60,6 +60,36 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * Map a missing menu to HTTP 404 Not Found.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(MenuNotFoundException.class)
+    public ProblemDetail handleMenuNotFound(MenuNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "Menu not found", ex.getMessage());
+    }
+
+    /**
+     * Map a missing menu group (or a missing assignment) to HTTP 404 Not Found.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(MenuGroupNotFoundException.class)
+    public ProblemDetail handleMenuGroupNotFound(MenuGroupNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "Menu group not found", ex.getMessage());
+    }
+
+    /**
+     * Map a menu / menu group business rule violation to HTTP 400 Bad Request.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(MenuValidationException.class)
+    public ProblemDetail handleMenuValidation(MenuValidationException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid menu", ex.getMessage());
+    }
+
+    /**
      * Map a payment validation failure to HTTP 400 Bad Request.
      * @param ex the exception thrown by the service layer
      * @return a problem detail describing the error
