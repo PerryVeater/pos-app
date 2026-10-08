@@ -29,6 +29,26 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * Map a missing order to HTTP 404 Not Found.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(OrderNotFoundException.class)
+    public ProblemDetail handleOrderNotFound(OrderNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "Order not found", ex.getMessage());
+    }
+
+    /**
+     * Map an order validation failure to HTTP 400 Bad Request.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(OrderValidationException.class)
+    public ProblemDetail handleOrderValidation(OrderValidationException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid order", ex.getMessage());
+    }
+
+    /**
      * Map an invalid argument (e.g. a negative price) to HTTP 400 Bad Request.
      * @param ex the exception thrown by the service layer
      * @return a problem detail describing the error
