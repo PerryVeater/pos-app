@@ -21,7 +21,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.example.posapp.entity.Category;
 import com.example.posapp.entity.MenuItem;
 import com.example.posapp.exception.MenuItemNotFoundException;
+import com.example.posapp.exception.MenuValidationException;
 import com.example.posapp.repository.CategoryRepository;
+import com.example.posapp.repository.MenuItemAssignmentRepository;
+import com.example.posapp.repository.MenuItemModifierGroupAssignmentRepository;
 import com.example.posapp.repository.MenuItemRepository;
 
 /**
@@ -41,6 +44,12 @@ class MenuItemServiceTest {
 
     @Mock
     private CategoryRepository categoryRepo;
+
+    @Mock
+    private MenuItemAssignmentRepository itemAssignmentRepo;
+
+    @Mock
+    private MenuItemModifierGroupAssignmentRepository mimgAssignmentRepo;
 
     @InjectMocks
     private MenuItemService menuItemService;
@@ -380,9 +389,37 @@ class MenuItemServiceTest {
     @Test
     @DisplayName("deleteMenuItem: delegates to the repository")
     void deleteMenuItemDelegatesToRepository() {
+        when(itemAssignmentRepo.countByMenuItemId(1L)).thenReturn(0L);
+        when(mimgAssignmentRepo.countByMenuItemId(1L)).thenReturn(0L);
+
         menuItemService.deleteMenuItem(1L);
 
         verify(menuItemRepo).deleteById(1L);
+    }
+
+    @Test
+    @DisplayName("deleteMenuItem: rejects deletion when item is still assigned to a menu group")
+    void deleteMenuItemWithMenuGroupAssignmentThrows() {
+        when(itemAssignmentRepo.countByMenuItemId(7L)).thenReturn(1L);
+
+        assertThatThrownBy(() -> menuItemService.deleteMenuItem(7L))
+                .isInstanceOf(MenuValidationException.class)
+                .hasMessageContaining("still assigned to a menu group or modifier group");
+
+        verify(menuItemRepo, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("deleteMenuItem: rejects deletion when item still carries a modifier group")
+    void deleteMenuItemWithModifierGroupAssignmentThrows() {
+        when(itemAssignmentRepo.countByMenuItemId(8L)).thenReturn(0L);
+        when(mimgAssignmentRepo.countByMenuItemId(8L)).thenReturn(3L);
+
+        assertThatThrownBy(() -> menuItemService.deleteMenuItem(8L))
+                .isInstanceOf(MenuValidationException.class)
+                .hasMessageContaining("still assigned to a menu group or modifier group");
+
+        verify(menuItemRepo, never()).deleteById(any());
     }
 
     @Test

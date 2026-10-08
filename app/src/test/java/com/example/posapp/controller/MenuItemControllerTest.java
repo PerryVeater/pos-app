@@ -32,6 +32,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.example.posapp.entity.Category;
 import com.example.posapp.entity.MenuItem;
 import com.example.posapp.exception.MenuItemNotFoundException;
+import com.example.posapp.exception.MenuValidationException;
 import com.example.posapp.service.MenuItemService;
 
 /**
@@ -359,5 +360,19 @@ class MenuItemControllerTest {
                 .andExpect(status().isNoContent());
 
         verify(menuItemService).deleteMenuItem(1L);
+    }
+
+    @Test
+    @DisplayName("DELETE /products/{id} returns 400 when the item is still assigned to a group or modifier group")
+    void deleteAssignedMenuItemReturns400() throws Exception {
+        org.mockito.Mockito.doThrow(new MenuValidationException(
+                "Cannot delete menu item still assigned to a menu group or modifier group: 1"))
+                .when(menuItemService).deleteMenuItem(1L);
+
+        mockMvc.perform(delete("/products/1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Invalid menu"))
+                .andExpect(jsonPath("$.detail").value(containsString("still assigned")));
     }
 }

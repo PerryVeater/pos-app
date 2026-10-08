@@ -243,6 +243,20 @@ class ModifierGroupControllerTest {
         verify(modifierGroupService).deleteModifierGroup(1L);
     }
 
+    @Test
+    @DisplayName("DELETE /api/v1/modifier-groups/{id} returns 400 when the group is still assigned to a menu item")
+    void deleteAssignedModifierGroupReturns400() throws Exception {
+        org.mockito.Mockito.doThrow(new ModifierValidationException(
+                "Cannot delete modifier group still assigned to a menu item: 1"))
+                .when(modifierGroupService).deleteModifierGroup(1L);
+
+        mockMvc.perform(delete("/api/v1/modifier-groups/1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Invalid modifier"))
+                .andExpect(jsonPath("$.detail").value(containsString("still assigned")));
+    }
+
     // --- GET /api/v1/modifier-groups/{id}/modifiers ---
 
     @Test

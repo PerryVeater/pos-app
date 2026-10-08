@@ -7,7 +7,10 @@ import org.springframework.stereotype.Service;
 import com.example.posapp.entity.Category;
 import com.example.posapp.entity.MenuItem;
 import com.example.posapp.exception.MenuItemNotFoundException;
+import com.example.posapp.exception.MenuValidationException;
 import com.example.posapp.repository.CategoryRepository;
+import com.example.posapp.repository.MenuItemAssignmentRepository;
+import com.example.posapp.repository.MenuItemModifierGroupAssignmentRepository;
 import com.example.posapp.repository.MenuItemRepository;
 
 /**
@@ -36,15 +39,30 @@ public class MenuItemService {
     private final MenuItemRepository menuItemRepo;
 
     private final CategoryRepository categoryRepo;
-    
+
+    private final MenuItemAssignmentRepository itemAssignmentRepo;
+
+    private final MenuItemModifierGroupAssignmentRepository mimgAssignmentRepo;
+
     /**
      * Constructor for MenuItemService.
      * @param menuItemRepo The repository for {@link MenuItem}s.
      * @param categoryRepo The repository for {@link Category}s.
+     * @param itemAssignmentRepo the repository for MenuGroup ↔ MenuItem assignments,
+     *        used by {@link #deleteMenuItem(Long)} to block deletion while the
+     *        item is still visible in a menu group.
+     * @param mimgAssignmentRepo the repository for MenuItem ↔ ModifierGroup
+     *        assignments, used by {@link #deleteMenuItem(Long)} to block
+     *        deletion while the item still carries modifier groups.
      */
-    public MenuItemService(MenuItemRepository menuItemRepo, CategoryRepository categoryRepo) {
+    public MenuItemService(MenuItemRepository menuItemRepo,
+                           CategoryRepository categoryRepo,
+                           MenuItemAssignmentRepository itemAssignmentRepo,
+                           MenuItemModifierGroupAssignmentRepository mimgAssignmentRepo) {
         this.menuItemRepo = menuItemRepo;
         this.categoryRepo = categoryRepo;
+        this.itemAssignmentRepo = itemAssignmentRepo;
+        this.mimgAssignmentRepo = mimgAssignmentRepo;
     }
 
    /**
@@ -105,13 +123,23 @@ public class MenuItemService {
             .orElseThrow(() -> new MenuItemNotFoundException(id));
     }
     
-    /**
+   /**
      * Delete a {@link MenuItem} by ID.
-     * Does not throw an exception if the {@link MenuItem} does not exist.
+     * Refuses to delete a menu item that is still assigned to at least one
+     * menu group or still carries at least one modifier group so callers
+     * must unassign first. A missing ID is a silent no-op (unchanged from
+     * the prior behavior).
      *
      * @param id the ID of the {@link MenuItem} to delete
+     * @throws MenuValidationException if the item is still referenced by a
+     *         MenuGroup ↔ MenuItem or MenuItem ↔ ModifierGroup assignment
      */
     public void deleteMenuItem(Long id) {
+        if (itemAssignmentRepo.countByMenuItemId(id) > 0
+                || mimgAssignmentRepo.countByMenuItemId(id) > 0) {
+            throw new MenuValidationException(
+                    "Cannot delete menu item still assigned to a menu group or modifier group: " + id);
+        }
         menuItemRepo.deleteById(id);
     }    
 

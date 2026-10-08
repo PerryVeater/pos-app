@@ -26,6 +26,7 @@ import com.example.posapp.exception.ModifierNotFoundException;
 import com.example.posapp.exception.ModifierValidationException;
 import com.example.posapp.repository.ModifierGroupAssignmentRepository;
 import com.example.posapp.repository.ModifierGroupRepository;
+import com.example.posapp.repository.MenuItemModifierGroupAssignmentRepository;
 import com.example.posapp.repository.ModifierRepository;
 
 /**
@@ -48,6 +49,9 @@ class ModifierGroupServiceTest {
 
     @Mock
     private ModifierRepository modifierRepo;
+
+    @Mock
+    private MenuItemModifierGroupAssignmentRepository mimgAssignmentRepo;
 
     @InjectMocks
     private ModifierGroupService modifierGroupService;
@@ -185,9 +189,23 @@ class ModifierGroupServiceTest {
     @Test
     @DisplayName("deleteModifierGroup: delegates to the repository (JPA cascade removes assignments)")
     void deleteModifierGroupDelegatesToRepository() {
+        when(mimgAssignmentRepo.countByModifierGroupId(1L)).thenReturn(0L);
+
         modifierGroupService.deleteModifierGroup(1L);
 
         verify(modifierGroupRepo).deleteById(1L);
+    }
+
+    @Test
+    @DisplayName("deleteModifierGroup: rejects deletion when still assigned to a menu item")
+    void deleteModifierGroupWithMenuItemAssignmentThrows() {
+        when(mimgAssignmentRepo.countByModifierGroupId(7L)).thenReturn(2L);
+
+        assertThatThrownBy(() -> modifierGroupService.deleteModifierGroup(7L))
+                .isInstanceOf(ModifierValidationException.class)
+                .hasMessageContaining("still assigned to a menu item");
+
+        verify(modifierGroupRepo, never()).deleteById(any());
     }
 
     @Test

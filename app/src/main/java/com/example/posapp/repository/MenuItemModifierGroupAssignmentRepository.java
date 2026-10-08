@@ -44,11 +44,21 @@ public interface MenuItemModifierGroupAssignmentRepository
     boolean existsByMenuItemIdAndModifierGroupId(Long menuItemId, Long modifierGroupId);
 
     /**
-     * Count assignments referencing a given modifier group. Reserved for
-     * future guards that restrict deleting groups still visible on a menu
-     * item.
+     * Count assignments referencing a given modifier group. Used by the
+     * ModifierGroup delete guard so a group still attached to a menu item
+     * is rejected at the service layer instead of surfacing a raw FK
+     * violation.
      * @param modifierGroupId the modifier group ID
      * @return the number of assignments referencing the modifier group
      */
     long countByModifierGroupId(Long modifierGroupId);
+
+    /**
+     * Count assignments referencing a given menu item. Used by the MenuItem
+     * delete guard so an item still carrying modifier groups is rejected at
+     * the service layer instead of surfacing a raw FK violation.
+     * @param menuItemId the menu item ID
+     * @return the number of assignments referencing the menu item
+     */
+    long countByMenuItemId(Long menuItemId);
 }

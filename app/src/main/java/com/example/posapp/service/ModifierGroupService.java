@@ -13,6 +13,7 @@ import com.example.posapp.exception.ModifierNotFoundException;
 import com.example.posapp.exception.ModifierValidationException;
 import com.example.posapp.repository.ModifierGroupAssignmentRepository;
 import com.example.posapp.repository.ModifierGroupRepository;
+import com.example.posapp.repository.MenuItemModifierGroupAssignmentRepository;
 import com.example.posapp.repository.ModifierRepository;
 
 /**
@@ -31,19 +32,25 @@ public class ModifierGroupService {
     private final ModifierGroupRepository modifierGroupRepo;
     private final ModifierGroupAssignmentRepository assignmentRepo;
     private final ModifierRepository modifierRepo;
+    private final MenuItemModifierGroupAssignmentRepository mimgAssignmentRepo;
 
     /**
      * Constructor for ModifierGroupService.
      * @param modifierGroupRepo the repository for modifier groups
      * @param assignmentRepo the repository for modifier group ↔ modifier assignments
      * @param modifierRepo the repository for modifiers
+     * @param mimgAssignmentRepo the repository for MenuItem ↔ ModifierGroup
+     *        assignments, used by {@link #deleteModifierGroup(Long)} to block
+     *        deletion while the group is still attached to a menu item
      */
     public ModifierGroupService(ModifierGroupRepository modifierGroupRepo,
                                 ModifierGroupAssignmentRepository assignmentRepo,
-                                ModifierRepository modifierRepo) {
+                                ModifierRepository modifierRepo,
+                                MenuItemModifierGroupAssignmentRepository mimgAssignmentRepo) {
         this.modifierGroupRepo = modifierGroupRepo;
         this.assignmentRepo = assignmentRepo;
         this.modifierRepo = modifierRepo;
+        this.mimgAssignmentRepo = mimgAssignmentRepo;
     }
 
     /**
@@ -92,12 +99,20 @@ public class ModifierGroupService {
     }
 
     /**
-     * Delete a modifier group by ID. Attached assignments are removed
-     * through the JPA cascade on {@link ModifierGroup#getAssignments()};
-     * the referenced modifiers stay intact.
+     * Delete a modifier group by ID. Refuses to delete a group that is still
+     * assigned to at least one menu item so callers must unassign it first.
+     * Once the guard passes, attached assignments are removed through the JPA
+     * cascade on {@link ModifierGroup#getAssignments()}; the referenced
+     * modifiers stay intact.
      * @param id the modifier group ID
+     * @throws ModifierValidationException if the group is still assigned to
+     *         a menu item
      */
     public void deleteModifierGroup(Long id) {
+        if (mimgAssignmentRepo.countByModifierGroupId(id) > 0) {
+            throw new ModifierValidationException(
+                    "Cannot delete modifier group still assigned to a menu item: " + id);
+        }
         modifierGroupRepo.deleteById(id);
     }
 
