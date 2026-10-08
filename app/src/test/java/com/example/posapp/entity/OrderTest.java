@@ -31,7 +31,7 @@ class OrderTest {
     @DisplayName("getTotal: single line — quantity × unitPrice")
     void getTotalSingleLine() {
         Order order = newOrder();
-        Product cola = new Product("Cola", "COLA-001", new BigDecimal("2.50"), true);
+        MenuItem cola = new MenuItem("Cola", "COLA-001", new BigDecimal("2.50"), true);
         order.addLine(new OrderLine(cola, 3, new BigDecimal("2.50")));
 
         assertThat(order.getTotal()).isEqualByComparingTo("7.50");
@@ -42,9 +42,9 @@ class OrderTest {
     @DisplayName("getTotal: multiple lines with different quantities and prices")
     void getTotalMultipleLines() {
         Order order = newOrder();
-        Product cola = new Product("Cola", "COLA-001", new BigDecimal("2.50"), true);
-        Product fries = new Product("Fries", "FRIES-001", new BigDecimal("4.00"), true);
-        Product burger = new Product("Burger", "BURGER-001", new BigDecimal("8.75"), true);
+        MenuItem cola = new MenuItem("Cola", "COLA-001", new BigDecimal("2.50"), true);
+        MenuItem fries = new MenuItem("Fries", "FRIES-001", new BigDecimal("4.00"), true);
+        MenuItem burger = new MenuItem("Burger", "BURGER-001", new BigDecimal("8.75"), true);
 
         order.addLine(new OrderLine(cola, 2, new BigDecimal("2.50")));    // 5.00
         order.addLine(new OrderLine(fries, 1, new BigDecimal("4.00")));    // 4.00
@@ -59,8 +59,8 @@ class OrderTest {
     @DisplayName("getTotal: zero-price product contributes zero to the total")
     void getTotalZeroPriceProduct() {
         Order order = newOrder();
-        Product water = new Product("Tap water", "WATER-001", BigDecimal.ZERO, true);
-        Product cola = new Product("Cola", "COLA-001", new BigDecimal("2.50"), true);
+        MenuItem water = new MenuItem("Tap water", "WATER-001", BigDecimal.ZERO, true);
+        MenuItem cola = new MenuItem("Cola", "COLA-001", new BigDecimal("2.50"), true);
 
         order.addLine(new OrderLine(water, 5, BigDecimal.ZERO));         // 0.00
         order.addLine(new OrderLine(cola, 2, new BigDecimal("2.50")));   // 5.00
@@ -72,7 +72,7 @@ class OrderTest {
     @DisplayName("getTotal: quantity of 1 returns the unitPrice directly")
     void getTotalQuantityOne() {
         Order order = newOrder();
-        Product espresso = new Product("Espresso", "ESPRESSO-001", new BigDecimal("3.99"), true);
+        MenuItem espresso = new MenuItem("Espresso", "ESPRESSO-001", new BigDecimal("3.99"), true);
         order.addLine(new OrderLine(espresso, 1, new BigDecimal("3.99")));
 
         assertThat(order.getTotal()).isEqualByComparingTo("3.99");
@@ -82,7 +82,7 @@ class OrderTest {
     @DisplayName("getTotal: large quantity and price maintain precision")
     void getTotalLargeValues() {
         Order order = newOrder();
-        Product premium = new Product("Premium", "PREM-001", new BigDecimal("999.99"), true);
+        MenuItem premium = new MenuItem("Premium", "PREM-001", new BigDecimal("999.99"), true);
         order.addLine(new OrderLine(premium, 100, new BigDecimal("999.99")));
 
         // 100 × 999.99 = 99999.00

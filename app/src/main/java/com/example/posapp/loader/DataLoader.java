@@ -3,9 +3,9 @@ package com.example.posapp.loader;
 import java.math.BigDecimal;
 
 import com.example.posapp.entity.Category;
-import com.example.posapp.entity.Product;
+import com.example.posapp.entity.MenuItem;
 import com.example.posapp.repository.CategoryRepository;
-import com.example.posapp.repository.ProductRepository;
+import com.example.posapp.repository.MenuItemRepository;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
@@ -28,8 +28,8 @@ import org.springframework.stereotype.Component;
  * </ul>
  * </p>
  * 
- * @see com.example.posapp.entity.Product
- * @see com.example.posapp.repository.ProductRepository
+ * @see com.example.posapp.entity.MenuItem
+ * @see com.example.posapp.repository.MenuItemRepository
  */
 @Component
 public class DataLoader implements CommandLineRunner {
@@ -51,17 +51,17 @@ public class DataLoader implements CommandLineRunner {
      */
     private static final String SEED_CATEGORY_NAME = "Test Category";
 
-    private final ProductRepository productRepository;
+    private final MenuItemRepository menuItemRepository;
 
     private final CategoryRepository categoryRepository;
 
     /**
      * Constructor for DataLoader.
-     * @param productRepository the repository for {@link Product}s.
+     * @param menuItemRepository the repository for {@link MenuItem}s.
      * @param categoryRepository the repository for {@link Category}s.
      */
-    public DataLoader(ProductRepository productRepository, CategoryRepository categoryRepository) {
-        this.productRepository = productRepository;
+    public DataLoader(MenuItemRepository menuItemRepository, CategoryRepository categoryRepository) {
+        this.menuItemRepository = menuItemRepository;
         this.categoryRepository = categoryRepository;
     }
 
@@ -73,7 +73,7 @@ public class DataLoader implements CommandLineRunner {
      */
     @Override
     public void run(String... args) throws Exception {
-        if (productRepository.existsByName(SEED_PRODUCT_NAME)) {
+        if (menuItemRepository.existsByName(SEED_PRODUCT_NAME)) {
             return;
         }
 
@@ -82,12 +82,12 @@ public class DataLoader implements CommandLineRunner {
                 .orElseGet(() -> categoryRepository.save(new Category(SEED_CATEGORY_NAME)));
 
         // Save the seed product only on first use
-        Product p = new Product(SEED_PRODUCT_NAME, SEED_PRODUCT_SKU, new BigDecimal("19.99"), true);
+        MenuItem p = new MenuItem(SEED_PRODUCT_NAME, SEED_PRODUCT_SKU, new BigDecimal("19.99"), true);
         p.setCategory(seedCategory);
-        productRepository.save(p);
+        menuItemRepository.save(p);
 
-        // Fetch all products
-        System.out.println("Products in DB:");
-        productRepository.findAll().forEach(System.out::println);
+        // Fetch all menu items
+        System.out.println("Menu items in DB:");
+        menuItemRepository.findAll().forEach(System.out::println);
     }
 }

@@ -10,11 +10,11 @@ import com.example.posapp.entity.DiningOption;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
-import com.example.posapp.entity.Product;
+import com.example.posapp.entity.MenuItem;
 import com.example.posapp.exception.OrderNotFoundException;
 import com.example.posapp.exception.OrderValidationException;
 import com.example.posapp.repository.OrderRepository;
-import com.example.posapp.repository.ProductRepository;
+import com.example.posapp.repository.MenuItemRepository;
 
 /**
  * Service layer for creating and retrieving {@link Order}s.
@@ -39,16 +39,16 @@ import com.example.posapp.repository.ProductRepository;
 public class OrderService {
 
     private final OrderRepository orderRepo;
-    private final ProductRepository productRepo;
+    private final MenuItemRepository menuItemRepo;
 
     /**
      * Constructor for OrderService.
      * @param orderRepo the repository for {@link Order}s
-     * @param productRepo the repository for {@link Product}s
+     * @param menuItemRepo the repository for {@link MenuItem}s
      */
-    public OrderService(OrderRepository orderRepo, ProductRepository productRepo) {
+    public OrderService(OrderRepository orderRepo, MenuItemRepository menuItemRepo) {
         this.orderRepo = orderRepo;
-        this.productRepo = productRepo;
+        this.menuItemRepo = menuItemRepo;
     }
 
     /**
@@ -82,7 +82,7 @@ public class OrderService {
         order.setCreatedAt(LocalDateTime.now());
 
         for (OrderLineInput input : lineInputs) {
-            Product product = productRepo.findById(input.productId())
+            MenuItem product = menuItemRepo.findById(input.productId())
                     .orElseThrow(() -> new OrderValidationException(
                             "Product not found: " + input.productId()));
 

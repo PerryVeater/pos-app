@@ -15,16 +15,16 @@ import jakarta.persistence.Table;
 /**
  * Entity class representing a single line item within an {@link Order}.
  * <p>
- * Each line captures the product being ordered, the quantity, and the
+ * Each line captures the menu item being ordered, the quantity, and the
  * unit price at the time the order was placed. The unit price is a snapshot:
- * later changes to the product's price do not affect existing order lines.
+ * later changes to the menu item's price do not affect existing order lines.
  * </p>
  * <p>
  * Fields:
  * <ul>
  *   <li>{@code id} - Unique identifier for the line.</li>
  *   <li>{@code order} - The order this line belongs to.</li>
- *   <li>{@code product} - The product being ordered.</li>
+ *   <li>{@code product} - The menu item being ordered.</li>
  *   <li>{@code quantity} - The number of units ordered.</li>
  *   <li>{@code unitPrice} - The price per unit at order-creation time.</li>
  * </ul>
@@ -48,13 +48,13 @@ public class OrderLine {
     private Order order;
 
     /**
-     * The product being ordered. The join column and constraint name match
+     * The menu item being ordered. The join column and constraint name match
      * the {@code fk_order_line_product} foreign key created by the Flyway V4
      * migration.
      */
     @ManyToOne
     @JoinColumn(name = "product_id", foreignKey = @ForeignKey(name = "fk_order_line_product"))
-    private Product product;
+    private MenuItem product;
 
     /**
      * Number of units ordered. Must be positive.
@@ -63,9 +63,9 @@ public class OrderLine {
     private int quantity;
 
     /**
-     * Price of a single unit, captured from the product's current price at
+     * Price of a single unit, captured from the menu item's current price at
      * order-creation time. Stored as {@code NUMERIC(10,2)} to match the
-     * product price column.
+     * menu item price column.
      */
     @Column(precision = 10, scale = 2, nullable = false)
     private BigDecimal unitPrice;
@@ -77,11 +77,11 @@ public class OrderLine {
 
     /**
      * Constructor for OrderLine.
-     * @param product the product being ordered
+     * @param product the menu item being ordered
      * @param quantity the number of units ordered
      * @param unitPrice the price per unit at order-creation time
      */
-    public OrderLine(Product product, int quantity, BigDecimal unitPrice) {
+    public OrderLine(MenuItem product, int quantity, BigDecimal unitPrice) {
         this.product = product;
         this.quantity = quantity;
         this.unitPrice = unitPrice;
@@ -106,16 +106,16 @@ public class OrderLine {
     public void setOrder(Order order) { this.order = order; }
 
     /**
-     * Get the product being ordered.
-     * @return the product being ordered
+     * Get the menu item being ordered.
+     * @return the menu item being ordered
      */
-    public Product getProduct() { return product; }
+    public MenuItem getMenuItem() { return product; }
 
     /**
-     * Set the product being ordered.
-     * @param product the product being ordered
+     * Set the menu item being ordered.
+     * @param product the menu item being ordered
      */
-    public void setProduct(Product product) { this.product = product; }
+    public void setMenuItem(MenuItem product) { this.product = product; }
 
     /**
      * Get the quantity ordered.

@@ -24,7 +24,7 @@ import com.example.posapp.entity.DiningOption;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
-import com.example.posapp.entity.Product;
+import com.example.posapp.entity.MenuItem;
 import com.example.posapp.exception.OrderValidationException;
 import com.example.posapp.service.OrderService;
 
@@ -60,7 +60,7 @@ class OrderRepositoryIntegrationTest {
     private OrderRepository orderRepository;
 
     @Autowired
-    private ProductRepository productRepository;
+    private MenuItemRepository productRepository;
 
     @Autowired
     private OrderService orderService;
@@ -196,8 +196,8 @@ class OrderRepositoryIntegrationTest {
                 .containsEntry("referenced_column", "id");
 
         // Behavior: a line cannot reference a nonexistent order.
-        Product p = productRepository.save(
-                new Product("FK Cola", "FK-ORD-001", new BigDecimal("1.00"), true));
+        MenuItem p = productRepository.save(
+                new MenuItem("FK Cola", "FK-ORD-001", new BigDecimal("1.00"), true));
         assertThatThrownBy(() -> jdbcTemplate.update(
                 "INSERT INTO order_line (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)",
                 999999L, p.getId(), 1, new BigDecimal("1.00")))
@@ -218,9 +218,9 @@ class OrderRepositoryIntegrationTest {
 
     @Test
     @DisplayName("cannot delete a product referenced by an order line (FK protect)")
-    void cannotDeleteProductInUseByOrderLine() {
-        Product p = productRepository.save(
-                new Product("FK Cola 2", "FK-ORD-002", new BigDecimal("1.00"), true));
+    void cannotDeleteMenuItemInUseByOrderLine() {
+        MenuItem p = productRepository.save(
+                new MenuItem("FK Cola 2", "FK-ORD-002", new BigDecimal("1.00"), true));
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(p, 1, new BigDecimal("1.00")));
         orderRepository.save(order);
@@ -237,8 +237,8 @@ class OrderRepositoryIntegrationTest {
     @Test
     @DisplayName("cascade: deleting an order removes its lines")
     void cascadeDeleteRemovesOrderLines() {
-        Product cola = productRepository.save(
-                new Product("Cascade Cola", "INT-ORD-001", new BigDecimal("2.50"), true));
+        MenuItem cola = productRepository.save(
+                new MenuItem("Cascade Cola", "INT-ORD-001", new BigDecimal("2.50"), true));
 
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(cola, 2, new BigDecimal("2.50")));
@@ -263,10 +263,10 @@ class OrderRepositoryIntegrationTest {
     @DisplayName("repository performs full CRUD against PostgreSQL, persisting lines and captured prices")
     void repositoryCrudAgainstPostgres() {
         // Setup: create products
-        Product cola = productRepository.save(
-                new Product("Integration Cola", "INT-ORD-003", new BigDecimal("2.50"), true));
-        Product fries = productRepository.save(
-                new Product("Integration Fries", "INT-ORD-004", new BigDecimal("4.00"), true));
+        MenuItem cola = productRepository.save(
+                new MenuItem("Integration Cola", "INT-ORD-003", new BigDecimal("2.50"), true));
+        MenuItem fries = productRepository.save(
+                new MenuItem("Integration Fries", "INT-ORD-004", new BigDecimal("4.00"), true));
 
         // Create: order with two lines
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
@@ -284,15 +284,15 @@ class OrderRepositoryIntegrationTest {
         assertThat(loaded.get().getLines()).hasSize(2);
 
         OrderLine colaLine = loaded.get().getLines().stream()
-                .filter(l -> l.getProduct().getId().equals(cola.getId()))
+                .filter(l -> l.getMenuItem().getId().equals(cola.getId()))
                 .findFirst().orElseThrow();
         assertThat(colaLine.getQuantity()).isEqualTo(2);
         assertThat(colaLine.getUnitPrice()).isEqualByComparingTo("2.50");
         assertThat(colaLine.getUnitPrice()).hasScaleOf(2);
-        assertThat(colaLine.getProduct().getName()).isEqualTo("Integration Cola");
+        assertThat(colaLine.getMenuItem().getName()).isEqualTo("Integration Cola");
 
         OrderLine friesLine = loaded.get().getLines().stream()
-                .filter(l -> l.getProduct().getId().equals(fries.getId()))
+                .filter(l -> l.getMenuItem().getId().equals(fries.getId()))
                 .findFirst().orElseThrow();
         assertThat(friesLine.getQuantity()).isEqualTo(1);
         assertThat(friesLine.getUnitPrice()).isEqualByComparingTo("4.00");
@@ -319,9 +319,9 @@ class OrderRepositoryIntegrationTest {
 
     @Test
     @DisplayName("OrderService: rejects inactive product against real PostgreSQL")
-    void orderServiceRejectsInactiveProduct() {
-        Product inactive = productRepository.save(
-                new Product("Inactive Cola", "INT-ORD-INACTIVE", new BigDecimal("2.50"), false));
+    void orderServiceRejectsInactiveMenuItem() {
+        MenuItem inactive = productRepository.save(
+                new MenuItem("Inactive Cola", "INT-ORD-INACTIVE", new BigDecimal("2.50"), false));
 
         assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(inactive.getId(), 1))))
@@ -337,8 +337,8 @@ class OrderRepositoryIntegrationTest {
     @Test
     @DisplayName("OrderService: captures current product price as unitPrice against real PostgreSQL")
     void orderServiceCapturesCurrentPrice() {
-        Product cola = productRepository.save(
-                new Product("Price Cola", "INT-ORD-PRICE", new BigDecimal("3.50"), true));
+        MenuItem cola = productRepository.save(
+                new MenuItem("Price Cola", "INT-ORD-PRICE", new BigDecimal("3.50"), true));
 
         Order order = orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(cola.getId(), 2)));
@@ -359,10 +359,10 @@ class OrderRepositoryIntegrationTest {
     @Test
     @DisplayName("Order.getTotal: computed total survives save and reload against real PostgreSQL")
     void orderTotalSurvivesSaveAndReload() {
-        Product cola = productRepository.save(
-                new Product("Total Cola", "INT-ORD-TOTAL-1", new BigDecimal("2.50"), true));
-        Product fries = productRepository.save(
-                new Product("Total Fries", "INT-ORD-TOTAL-2", new BigDecimal("4.00"), true));
+        MenuItem cola = productRepository.save(
+                new MenuItem("Total Cola", "INT-ORD-TOTAL-1", new BigDecimal("2.50"), true));
+        MenuItem fries = productRepository.save(
+                new MenuItem("Total Fries", "INT-ORD-TOTAL-2", new BigDecimal("4.00"), true));
 
         // Create order with two lines: 3×2.50=7.50 + 2×4.00=8.00 = 15.50
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
@@ -388,8 +388,8 @@ class OrderRepositoryIntegrationTest {
     @Test
     @DisplayName("OrderService.transitionStatus: PENDING → CONFIRMED is persisted and reloaded")
     void transitionStatusIsPersistedAndReloaded() {
-        Product cola = productRepository.save(
-                new Product("Transition Cola", "INT-ORD-TRANS-1", new BigDecimal("2.50"), true));
+        MenuItem cola = productRepository.save(
+                new MenuItem("Transition Cola", "INT-ORD-TRANS-1", new BigDecimal("2.50"), true));
 
         // Create a PENDING order
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
@@ -413,8 +413,8 @@ class OrderRepositoryIntegrationTest {
     @Test
     @DisplayName("dining_option: persists TAKEOUT and ONLINE values correctly")
     void diningOptionPersistsAllValues() {
-        Product cola = productRepository.save(
-                new Product("Dining Cola", "INT-ORD-DINE-1", new BigDecimal("2.50"), true));
+        MenuItem cola = productRepository.save(
+                new MenuItem("Dining Cola", "INT-ORD-DINE-1", new BigDecimal("2.50"), true));
 
         // Test TAKEOUT
         Order takeoutOrder = new Order(OrderStatus.PENDING, DiningOption.TAKEOUT, LocalDateTime.now());
@@ -441,8 +441,8 @@ class OrderRepositoryIntegrationTest {
     @Test
     @DisplayName("OrderService: creates order with dining option against real PostgreSQL")
     void orderServiceCreatesOrderWithDiningOption() {
-        Product cola = productRepository.save(
-                new Product("Dining Option Cola", "INT-ORD-DINE-2", new BigDecimal("2.50"), true));
+        MenuItem cola = productRepository.save(
+                new MenuItem("Dining Option Cola", "INT-ORD-DINE-2", new BigDecimal("2.50"), true));
 
         Order order = orderService.createOrder(DiningOption.ONLINE, List.of(
                 new OrderService.OrderLineInput(cola.getId(), 1)));

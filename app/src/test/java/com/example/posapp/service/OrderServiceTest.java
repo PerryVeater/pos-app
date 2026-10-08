@@ -22,11 +22,11 @@ import com.example.posapp.entity.DiningOption;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
-import com.example.posapp.entity.Product;
+import com.example.posapp.entity.MenuItem;
 import com.example.posapp.exception.OrderNotFoundException;
 import com.example.posapp.exception.OrderValidationException;
 import com.example.posapp.repository.OrderRepository;
-import com.example.posapp.repository.ProductRepository;
+import com.example.posapp.repository.MenuItemRepository;
 
 /**
  * Unit tests for the {@link OrderService} business rules.
@@ -44,7 +44,7 @@ class OrderServiceTest {
     private OrderRepository orderRepo;
 
     @Mock
-    private ProductRepository productRepo;
+    private MenuItemRepository menuItemRepo;
 
     @InjectMocks
     private OrderService orderService;
@@ -54,8 +54,8 @@ class OrderServiceTest {
      * money values use the exact {@code BigDecimal} construction required
      * for monetary data.
      */
-    private static Product product(String name, String sku, String price) {
-        return new Product(name, sku, new BigDecimal(price), true);
+    private static MenuItem product(String name, String sku, String price) {
+        return new MenuItem(name, sku, new BigDecimal(price), true);
     }
 
     // --- createOrder ---
@@ -63,10 +63,10 @@ class OrderServiceTest {
     @Test
     @DisplayName("createOrder: builds order with PENDING status, captured prices, and saves")
     void createOrderBuildsOrderWithCapturedPrices() {
-        Product cola = product("Cola", "COLA-001", "2.50");
-        Product fries = product("Fries", "FRIES-001", "4.00");
-        when(productRepo.findById(1L)).thenReturn(Optional.of(cola));
-        when(productRepo.findById(2L)).thenReturn(Optional.of(fries));
+        MenuItem cola = product("Cola", "COLA-001", "2.50");
+        MenuItem fries = product("Fries", "FRIES-001", "4.00");
+        when(menuItemRepo.findById(1L)).thenReturn(Optional.of(cola));
+        when(menuItemRepo.findById(2L)).thenReturn(Optional.of(fries));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Order saved = orderService.createOrder(DiningOption.DINE_IN, List.of(
@@ -79,14 +79,14 @@ class OrderServiceTest {
         assertThat(saved.getLines()).hasSize(2);
 
         OrderLine colaLine = saved.getLines().stream()
-                .filter(l -> l.getProduct() == cola)
+                .filter(l -> l.getMenuItem() == cola)
                 .findFirst().orElseThrow();
         assertThat(colaLine.getQuantity()).isEqualTo(2);
         assertThat(colaLine.getUnitPrice()).isEqualByComparingTo("2.50");
         assertThat(colaLine.getUnitPrice()).hasScaleOf(2);
 
         OrderLine friesLine = saved.getLines().stream()
-                .filter(l -> l.getProduct() == fries)
+                .filter(l -> l.getMenuItem() == fries)
                 .findFirst().orElseThrow();
         assertThat(friesLine.getQuantity()).isEqualTo(1);
         assertThat(friesLine.getUnitPrice()).isEqualByComparingTo("4.00");
@@ -97,14 +97,14 @@ class OrderServiceTest {
     @Test
     @DisplayName("createOrder: unit price is a snapshot — later product price change does not affect the line")
     void createOrderCapturesPriceAtCreationTime() {
-        Product cola = product("Cola", "COLA-001", "2.50");
-        when(productRepo.findById(1L)).thenReturn(Optional.of(cola));
+        MenuItem cola = product("Cola", "COLA-001", "2.50");
+        when(menuItemRepo.findById(1L)).thenReturn(Optional.of(cola));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Order saved = orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(1L, 1)));
 
-        // Simulate a later price change on the product
+        // Simulate a later price change on the menuItem
         cola.setPrice(new BigDecimal("3.00"));
 
         // The order line's unit price is still the original snapshot
@@ -114,8 +114,8 @@ class OrderServiceTest {
     @Test
     @DisplayName("createOrder: each line's back-reference points to the owning order")
     void createOrderLinesBackReferenceOrder() {
-        Product cola = product("Cola", "COLA-001", "2.50");
-        when(productRepo.findById(1L)).thenReturn(Optional.of(cola));
+        MenuItem cola = product("Cola", "COLA-001", "2.50");
+        when(menuItemRepo.findById(1L)).thenReturn(Optional.of(cola));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Order saved = orderService.createOrder(DiningOption.DINE_IN, List.of(
@@ -126,8 +126,8 @@ class OrderServiceTest {
 
     @Test
     @DisplayName("createOrder: rejects nonexistent product and does not save")
-    void createOrderRejectsNonexistentProduct() {
-        when(productRepo.findById(99L)).thenReturn(Optional.empty());
+    void createOrderRejectsNonexistentMenuItem() {
+        when(menuItemRepo.findById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(99L, 1))))
@@ -139,9 +139,9 @@ class OrderServiceTest {
 
     @Test
     @DisplayName("createOrder: rejects inactive product and does not save")
-    void createOrderRejectsInactiveProduct() {
-        Product inactive = new Product("Legacy Fries", "LEGACY-001", new BigDecimal("5.00"), false);
-        when(productRepo.findById(1L)).thenReturn(Optional.of(inactive));
+    void createOrderRejectsInactiveMenuItem() {
+        MenuItem inactive = new MenuItem("Legacy Fries", "LEGACY-001", new BigDecimal("5.00"), false);
+        when(menuItemRepo.findById(1L)).thenReturn(Optional.of(inactive));
 
         assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(1L, 1))))
@@ -153,11 +153,11 @@ class OrderServiceTest {
 
     @Test
     @DisplayName("createOrder: rejects inactive product even when other lines are valid (nothing saved)")
-    void createOrderRejectsInactiveProductMixedLines() {
-        Product active = product("Cola", "COLA-001", "2.50");
-        Product inactive = new Product("Legacy Fries", "LEGACY-001", new BigDecimal("5.00"), false);
-        when(productRepo.findById(1L)).thenReturn(Optional.of(active));
-        when(productRepo.findById(2L)).thenReturn(Optional.of(inactive));
+    void createOrderRejectsInactiveMenuItemMixedLines() {
+        MenuItem active = product("Cola", "COLA-001", "2.50");
+        MenuItem inactive = new MenuItem("Legacy Fries", "LEGACY-001", new BigDecimal("5.00"), false);
+        when(menuItemRepo.findById(1L)).thenReturn(Optional.of(active));
+        when(menuItemRepo.findById(2L)).thenReturn(Optional.of(inactive));
 
         assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(1L, 1),
@@ -171,8 +171,8 @@ class OrderServiceTest {
     @Test
     @DisplayName("createOrder: rejects zero quantity and does not save")
     void createOrderRejectsZeroQuantity() {
-        Product cola = product("Cola", "COLA-001", "2.50");
-        when(productRepo.findById(1L)).thenReturn(Optional.of(cola));
+        MenuItem cola = product("Cola", "COLA-001", "2.50");
+        when(menuItemRepo.findById(1L)).thenReturn(Optional.of(cola));
 
         assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(1L, 0))))
@@ -185,8 +185,8 @@ class OrderServiceTest {
     @Test
     @DisplayName("createOrder: rejects negative quantity and does not save")
     void createOrderRejectsNegativeQuantity() {
-        Product cola = product("Cola", "COLA-001", "2.50");
-        when(productRepo.findById(1L)).thenReturn(Optional.of(cola));
+        MenuItem cola = product("Cola", "COLA-001", "2.50");
+        when(menuItemRepo.findById(1L)).thenReturn(Optional.of(cola));
 
         assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(1L, -1))))
@@ -219,8 +219,8 @@ class OrderServiceTest {
     @Test
     @DisplayName("createOrder: zero unit price is accepted (free item)")
     void createOrderAcceptsZeroUnitPrice() {
-        Product water = product("Tap water", "WATER-001", "0.00");
-        when(productRepo.findById(1L)).thenReturn(Optional.of(water));
+        MenuItem water = product("Tap water", "WATER-001", "0.00");
+        when(menuItemRepo.findById(1L)).thenReturn(Optional.of(water));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Order saved = orderService.createOrder(DiningOption.DINE_IN, List.of(
@@ -404,8 +404,8 @@ class OrderServiceTest {
     @Test
     @DisplayName("createOrder: accepts TAKEOUT dining option")
     void createOrderAcceptsTakeoutDiningOption() {
-        Product cola = product("Cola", "COLA-001", "2.50");
-        when(productRepo.findById(1L)).thenReturn(Optional.of(cola));
+        MenuItem cola = product("Cola", "COLA-001", "2.50");
+        when(menuItemRepo.findById(1L)).thenReturn(Optional.of(cola));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Order saved = orderService.createOrder(DiningOption.TAKEOUT, List.of(
@@ -417,8 +417,8 @@ class OrderServiceTest {
     @Test
     @DisplayName("createOrder: accepts ONLINE dining option")
     void createOrderAcceptsOnlineDiningOption() {
-        Product cola = product("Cola", "COLA-001", "2.50");
-        when(productRepo.findById(1L)).thenReturn(Optional.of(cola));
+        MenuItem cola = product("Cola", "COLA-001", "2.50");
+        when(menuItemRepo.findById(1L)).thenReturn(Optional.of(cola));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Order saved = orderService.createOrder(DiningOption.ONLINE, List.of(

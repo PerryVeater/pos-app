@@ -19,9 +19,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.example.posapp.entity.Category;
-import com.example.posapp.entity.Product;
+import com.example.posapp.entity.MenuItem;
 import com.example.posapp.repository.CategoryRepository;
-import com.example.posapp.repository.ProductRepository;
+import com.example.posapp.repository.MenuItemRepository;
 
 /**
  * Unit tests for the {@link DataLoader} idempotent seeding behavior.
@@ -37,7 +37,7 @@ import com.example.posapp.repository.ProductRepository;
 class DataLoaderTest {
 
     @Mock
-    private ProductRepository productRepository;
+    private MenuItemRepository productRepository;
 
     @Mock
     private CategoryRepository categoryRepository;
@@ -47,7 +47,7 @@ class DataLoaderTest {
 
     @Test
     @DisplayName("run: seeds the category and the product on an empty database")
-    void runSeedsProductOnEmptyDatabase() throws Exception {
+    void runSeedsMenuItemOnEmptyDatabase() throws Exception {
         when(productRepository.existsByName("Test Product")).thenReturn(false);
         when(categoryRepository.findByName("Test Category")).thenReturn(Optional.empty());
         when(categoryRepository.save(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -56,19 +56,19 @@ class DataLoaderTest {
 
         verify(productRepository).existsByName("Test Product");
         verify(categoryRepository).save(any(Category.class));
-        verify(productRepository).save(any(Product.class));
+        verify(productRepository).save(any(MenuItem.class));
     }
 
     @Test
     @DisplayName("run: the seeded product keeps its fields and is assigned to the seed category")
-    void runSeedsExpectedProductFields() throws Exception {
+    void runSeedsExpectedMenuItemFields() throws Exception {
         when(productRepository.existsByName("Test Product")).thenReturn(false);
         when(categoryRepository.findByName("Test Category")).thenReturn(Optional.empty());
         when(categoryRepository.save(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
 
         dataLoader.run();
 
-        ArgumentCaptor<Product> saved = ArgumentCaptor.forClass(Product.class);
+        ArgumentCaptor<MenuItem> saved = ArgumentCaptor.forClass(MenuItem.class);
         verify(productRepository).save(saved.capture());
         assertThat(saved.getValue().getName()).isEqualTo("Test Product");
         assertThat(saved.getValue().getSku()).isEqualTo("TEST-PRODUCT-001");
@@ -88,20 +88,20 @@ class DataLoaderTest {
         dataLoader.run();
 
         verify(categoryRepository, never()).save(any(Category.class));
-        ArgumentCaptor<Product> saved = ArgumentCaptor.forClass(Product.class);
+        ArgumentCaptor<MenuItem> saved = ArgumentCaptor.forClass(MenuItem.class);
         verify(productRepository).save(saved.capture());
         assertThat(saved.getValue().getCategory()).isSameAs(existingCategory);
     }
 
     @Test
     @DisplayName("run: skips seeding entirely when the product already exists")
-    void runSkipsSeedingWhenSeedProductExists() throws Exception {
+    void runSkipsSeedingWhenSeedMenuItemExists() throws Exception {
         when(productRepository.existsByName("Test Product")).thenReturn(true);
 
         dataLoader.run();
 
         verify(productRepository).existsByName("Test Product");
-        verify(productRepository, never()).save(any(Product.class));
+        verify(productRepository, never()).save(any(MenuItem.class));
         verifyNoInteractions(categoryRepository);
     }
 }

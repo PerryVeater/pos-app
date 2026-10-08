@@ -24,7 +24,7 @@ import com.example.posapp.entity.DiningOption;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
-import com.example.posapp.entity.Product;
+import com.example.posapp.entity.MenuItem;
 import com.example.posapp.exception.OrderNotFoundException;
 import com.example.posapp.exception.OrderValidationException;
 import com.example.posapp.service.OrderService;
@@ -59,8 +59,8 @@ class OrderControllerTest {
     @Test
     @DisplayName("POST /api/v1/orders: valid request returns 201 with order response")
     void postValidOrderReturns201() throws Exception {
-        Product cola = new Product("Cola", "COLA-001", new BigDecimal("2.50"), true);
-        Product fries = new Product("Fries", "FRIES-001", new BigDecimal("4.00"), true);
+        MenuItem cola = new MenuItem("Cola", "COLA-001", new BigDecimal("2.50"), true);
+        MenuItem fries = new MenuItem("Fries", "FRIES-001", new BigDecimal("4.00"), true);
 
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.of(2026, 10, 7, 12, 0));
         order.addLine(new OrderLine(cola, 2, new BigDecimal("2.50")));
@@ -105,7 +105,7 @@ class OrderControllerTest {
     @Test
     @DisplayName("GET /api/v1/orders/{id}: existing order returns 200 with response mapping")
     void getExistingOrderReturns200() throws Exception {
-        Product cola = new Product("Cola", "COLA-001", new BigDecimal("2.50"), true);
+        MenuItem cola = new MenuItem("Cola", "COLA-001", new BigDecimal("2.50"), true);
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.of(2026, 10, 7, 12, 0));
         order.addLine(new OrderLine(cola, 3, new BigDecimal("2.50")));
 
@@ -140,7 +140,7 @@ class OrderControllerTest {
     @Test
     @DisplayName("PATCH /api/v1/orders/{id}/status: valid transition returns 200 with updated order")
     void patchValidTransitionReturns200() throws Exception {
-        Product cola = new Product("Cola", "COLA-001", new BigDecimal("2.50"), true);
+        MenuItem cola = new MenuItem("Cola", "COLA-001", new BigDecimal("2.50"), true);
         Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.of(2026, 10, 7, 12, 0));
         order.addLine(new OrderLine(cola, 2, new BigDecimal("2.50")));
 

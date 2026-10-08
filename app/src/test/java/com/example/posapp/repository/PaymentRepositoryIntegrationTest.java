@@ -24,7 +24,7 @@ import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.Payment;
 import com.example.posapp.entity.PaymentMethod;
 import com.example.posapp.entity.PaymentStatus;
-import com.example.posapp.entity.Product;
+import com.example.posapp.entity.MenuItem;
 import com.example.posapp.exception.PaymentNotFoundException;
 import com.example.posapp.exception.PaymentValidationException;
 import com.example.posapp.service.PaymentService;
@@ -60,7 +60,7 @@ class PaymentRepositoryIntegrationTest {
     private OrderRepository orderRepository;
 
     @Autowired
-    private ProductRepository productRepository;
+    private MenuItemRepository productRepository;
 
     @Autowired
     private PaymentService paymentService;
@@ -68,8 +68,8 @@ class PaymentRepositoryIntegrationTest {
     @Test
     @DisplayName("V5 migration: payments table exists with correct schema")
     void paymentTableExists() {
-        Product product = productRepository.save(
-                new Product("Payment Product", "PAY-PROD-001", new BigDecimal("10.00"), true));
+        MenuItem product = productRepository.save(
+                new MenuItem("Payment MenuItem", "PAY-PROD-001", new BigDecimal("10.00"), true));
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
         Order savedOrder = orderRepository.save(order);
@@ -98,8 +98,8 @@ class PaymentRepositoryIntegrationTest {
     @Test
     @DisplayName("Payment can be saved and reloaded by ID")
     void paymentCanBeSavedAndReloaded() {
-        Product product = productRepository.save(
-                new Product("Reload Product", "PAY-PROD-002", new BigDecimal("25.00"), true));
+        MenuItem product = productRepository.save(
+                new MenuItem("Reload MenuItem", "PAY-PROD-002", new BigDecimal("25.00"), true));
         Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 2, new BigDecimal("25.00")));
         Order savedOrder = orderRepository.save(order);
@@ -128,8 +128,8 @@ class PaymentRepositoryIntegrationTest {
     @Test
     @DisplayName("Payment requires an existing order (foreign key constraint)")
     void paymentRequiresExistingOrder() {
-        Product product = productRepository.save(
-                new Product("FK Product", "PAY-PROD-003", new BigDecimal("15.00"), true));
+        MenuItem product = productRepository.save(
+                new MenuItem("FK MenuItem", "PAY-PROD-003", new BigDecimal("15.00"), true));
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("15.00")));
         Order savedOrder = orderRepository.save(order);
@@ -153,8 +153,8 @@ class PaymentRepositoryIntegrationTest {
     @Test
     @DisplayName("Payment supports all payment methods")
     void paymentSupportsAllMethods() {
-        Product product = productRepository.save(
-                new Product("Method Product", "PAY-PROD-004", new BigDecimal("20.00"), true));
+        MenuItem product = productRepository.save(
+                new MenuItem("Method MenuItem", "PAY-PROD-004", new BigDecimal("20.00"), true));
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
         Order savedOrder = orderRepository.save(order);
@@ -184,8 +184,8 @@ class PaymentRepositoryIntegrationTest {
     @Test
     @DisplayName("Payment supports all payment statuses")
     void paymentSupportsAllStatuses() {
-        Product product = productRepository.save(
-                new Product("Status Product", "PAY-PROD-005", new BigDecimal("30.00"), true));
+        MenuItem product = productRepository.save(
+                new MenuItem("Status MenuItem", "PAY-PROD-005", new BigDecimal("30.00"), true));
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("30.00")));
         Order savedOrder = orderRepository.save(order);
@@ -222,8 +222,8 @@ class PaymentRepositoryIntegrationTest {
     @Test
     @DisplayName("PaymentService.createPayment: rejects zero amount against real DB")
     void paymentServiceRejectsZeroAmount() {
-        Product product = productRepository.save(
-                new Product("Zero Product", "PAY-PROD-006", new BigDecimal("10.00"), true));
+        MenuItem product = productRepository.save(
+                new MenuItem("Zero MenuItem", "PAY-PROD-006", new BigDecimal("10.00"), true));
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
         Order savedOrder = orderRepository.save(order);
@@ -241,8 +241,8 @@ class PaymentRepositoryIntegrationTest {
     @Test
     @DisplayName("PaymentService.createPayment: rejects negative amount against real DB")
     void paymentServiceRejectsNegativeAmount() {
-        Product product = productRepository.save(
-                new Product("Neg Product", "PAY-PROD-007", new BigDecimal("10.00"), true));
+        MenuItem product = productRepository.save(
+                new MenuItem("Neg MenuItem", "PAY-PROD-007", new BigDecimal("10.00"), true));
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
         Order savedOrder = orderRepository.save(order);
@@ -269,8 +269,8 @@ class PaymentRepositoryIntegrationTest {
     @Test
     @DisplayName("PaymentService.createPayment: rejects cancelled order against real DB")
     void paymentServiceRejectsCancelledOrder() {
-        Product product = productRepository.save(
-                new Product("Cancel Product", "PAY-PROD-008", new BigDecimal("10.00"), true));
+        MenuItem product = productRepository.save(
+                new MenuItem("Cancel MenuItem", "PAY-PROD-008", new BigDecimal("10.00"), true));
         Order order = new Order(OrderStatus.CANCELLED, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
         Order savedOrder = orderRepository.save(order);
@@ -288,8 +288,8 @@ class PaymentRepositoryIntegrationTest {
     @Test
     @DisplayName("PaymentService.createPayment: valid payment starts PENDING against real DB")
     void paymentServiceCreatesPendingPayment() {
-        Product product = productRepository.save(
-                new Product("Valid Product", "PAY-PROD-009", new BigDecimal("20.00"), true));
+        MenuItem product = productRepository.save(
+                new MenuItem("Valid MenuItem", "PAY-PROD-009", new BigDecimal("20.00"), true));
         Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
         Order savedOrder = orderRepository.save(order);
@@ -314,8 +314,8 @@ class PaymentRepositoryIntegrationTest {
     @Test
     @DisplayName("PaymentService.transitionStatus: PENDING → COMPLETED is persisted and reloaded")
     void transitionStatusPendingToCompletedIsPersisted() {
-        Product product = productRepository.save(
-                new Product("Trans Product 1", "PAY-PROD-010", new BigDecimal("20.00"), true));
+        MenuItem product = productRepository.save(
+                new MenuItem("Trans MenuItem 1", "PAY-PROD-010", new BigDecimal("20.00"), true));
         Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
         Order savedOrder = orderRepository.save(order);
@@ -339,8 +339,8 @@ class PaymentRepositoryIntegrationTest {
     @Test
     @DisplayName("PaymentService.transitionStatus: invalid transition throws PaymentValidationException")
     void transitionStatusInvalidTransitionThrows() {
-        Product product = productRepository.save(
-                new Product("Trans Product 2", "PAY-PROD-011", new BigDecimal("20.00"), true));
+        MenuItem product = productRepository.save(
+                new MenuItem("Trans MenuItem 2", "PAY-PROD-011", new BigDecimal("20.00"), true));
         Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
         Order savedOrder = orderRepository.save(order);

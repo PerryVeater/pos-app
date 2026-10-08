@@ -20,13 +20,13 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class ApiExceptionHandler {
 
     /**
-     * Map a missing product to HTTP 404 Not Found.
+     * Map a missing menu item to HTTP 404 Not Found.
      * @param ex the exception thrown by the service layer
      * @return a problem detail describing the error
      */
-    @ExceptionHandler(ProductNotFoundException.class)
-    public ProblemDetail handleProductNotFound(ProductNotFoundException ex) {
-        return problem(HttpStatus.NOT_FOUND, "Product not found", ex.getMessage());
+    @ExceptionHandler(MenuItemNotFoundException.class)
+    public ProblemDetail handleMenuItemNotFound(MenuItemNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "Menu item not found", ex.getMessage());
     }
 
     /**

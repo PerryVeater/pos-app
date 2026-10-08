@@ -20,7 +20,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.example.posapp.entity.Category;
-import com.example.posapp.entity.Product;
+import com.example.posapp.entity.MenuItem;
 
 /**
  * Integration tests for the persistence stack against a real PostgreSQL.
@@ -39,7 +39,7 @@ import com.example.posapp.entity.Product;
  */
 @SpringBootTest
 @Testcontainers
-class ProductRepositoryIntegrationTest {
+class MenuItemRepositoryIntegrationTest {
 
     /**
      * Disposable PostgreSQL 16 database; {@code @ServiceConnection} feeds its
@@ -51,7 +51,7 @@ class ProductRepositoryIntegrationTest {
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
 
     @Autowired
-    private ProductRepository productRepository;
+    private MenuItemRepository menuItemRepository;
 
     @Autowired
     private CategoryRepository categoryRepository;
@@ -172,13 +172,13 @@ class ProductRepositoryIntegrationTest {
                 .containsExactly("sku");
 
         // Behavior: PostgreSQL rejects a second product with the same sku.
-        Product first = productRepository.save(
-                new Product("Uniqueness Cola", "UNIQ-COLA-001", new BigDecimal("1.00"), true));
-        assertThatThrownBy(() -> productRepository.save(
-                new Product("Uniqueness Cola Twin", "UNIQ-COLA-001", new BigDecimal("2.00"), true)))
+        MenuItem first = menuItemRepository.save(
+                new MenuItem("Uniqueness Cola", "UNIQ-COLA-001", new BigDecimal("1.00"), true));
+        assertThatThrownBy(() -> menuItemRepository.save(
+                new MenuItem("Uniqueness Cola Twin", "UNIQ-COLA-001", new BigDecimal("2.00"), true)))
                 .isInstanceOf(DataIntegrityViolationException.class);
 
-        productRepository.deleteById(first.getId());
+        menuItemRepository.deleteById(first.getId());
     }
 
     @Test
@@ -236,15 +236,15 @@ class ProductRepositoryIntegrationTest {
 
         // Behavior: a category still referenced by a product cannot be deleted.
         Category drinks = categoryRepository.save(new Category("FK Drinks"));
-        Product cola = new Product("FK Cola", "FK-COLA-002", new BigDecimal("1.00"), true);
+        MenuItem cola = new MenuItem("FK Cola", "FK-COLA-002", new BigDecimal("1.00"), true);
         cola.setCategory(drinks);
-        productRepository.save(cola);
+        menuItemRepository.save(cola);
 
         assertThatThrownBy(() -> categoryRepository.deleteById(drinks.getId()))
                 .isInstanceOf(DataIntegrityViolationException.class);
 
         // Cleanup: once the product is gone, the category deletes fine.
-        productRepository.deleteById(cola.getId());
+        menuItemRepository.deleteById(cola.getId());
         categoryRepository.deleteById(drinks.getId());
         assertThat(categoryRepository.findById(drinks.getId())).isEmpty();
     }
@@ -254,13 +254,13 @@ class ProductRepositoryIntegrationTest {
     void repositoryCrudAgainstPostgres() {
         // create (with a category reference)
         Category category = categoryRepository.save(new Category("Integration Drinks"));
-        Product cola = new Product("Integration Cola", "INT-COLA-001", new BigDecimal("2.50"), true);
+        MenuItem cola = new MenuItem("Integration Cola", "INT-COLA-001", new BigDecimal("2.50"), true);
         cola.setCategory(category);
-        Product saved = productRepository.save(cola);
+        MenuItem saved = menuItemRepository.save(cola);
         assertThat(saved.getId()).isNotNull();
 
         // read: identity, category, lifecycle state, and money survive the round-trip
-        Optional<Product> loaded = productRepository.findById(saved.getId());
+        Optional<MenuItem> loaded = menuItemRepository.findById(saved.getId());
         assertThat(loaded).isPresent();
         assertThat(loaded.get().getName()).isEqualTo("Integration Cola");
         assertThat(loaded.get().getSku()).isEqualTo("INT-COLA-001");
@@ -277,21 +277,21 @@ class ProductRepositoryIntegrationTest {
         loaded.get().setPrice(new BigDecimal("3.00"));
         loaded.get().setActive(false);
         loaded.get().setCategory(null);
-        Product updated = productRepository.save(loaded.get());
+        MenuItem updated = menuItemRepository.save(loaded.get());
         assertThat(updated.getName()).isEqualTo("Integration Cola Light");
         assertThat(updated.getSku()).isEqualTo("INT-COLA-002");
         assertThat(updated.isActive()).isFalse();
         assertThat(updated.getPrice()).isEqualByComparingTo("3.00");
         assertThat(updated.getCategory()).isNull();
-        assertThat(productRepository.findById(saved.getId()).orElseThrow().getCategory()).isNull();
+        assertThat(menuItemRepository.findById(saved.getId()).orElseThrow().getCategory()).isNull();
 
         // lookup independent of the DataLoader seed row
-        assertThat(productRepository.findByName("Integration Cola Light")).hasSize(1);
+        assertThat(menuItemRepository.findByName("Integration Cola Light")).hasSize(1);
 
         // delete
-        productRepository.deleteById(saved.getId());
-        assertThat(productRepository.findById(saved.getId())).isEmpty();
-        assertThat(productRepository.findByName("Integration Cola Light")).isEmpty();
+        menuItemRepository.deleteById(saved.getId());
+        assertThat(menuItemRepository.findById(saved.getId())).isEmpty();
+        assertThat(menuItemRepository.findByName("Integration Cola Light")).isEmpty();
         categoryRepository.deleteById(category.getId());
     }
 }

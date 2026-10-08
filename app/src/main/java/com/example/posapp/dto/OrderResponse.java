@@ -52,7 +52,7 @@ public record OrderResponse(
     public static OrderResponse from(Order order) {
         List<OrderLineResponse> lineResponses = order.getLines().stream()
                 .map(line -> new OrderLineResponse(
-                        line.getProduct().getId(),
+                        line.getMenuItem().getId(),
                         line.getQuantity(),
                         line.getUnitPrice(),
                         line.getUnitPrice().multiply(BigDecimal.valueOf(line.getQuantity()))))
