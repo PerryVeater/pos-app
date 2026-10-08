@@ -6,6 +6,7 @@ import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
+import com.example.posapp.entity.DiningOption;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
@@ -51,27 +52,33 @@ public class OrderService {
     }
 
     /**
-     * Create a new {@link Order} with the given line items.
+     * Create a new {@link Order} with the given dining option and line items.
      * <p>
      * Each line's unit price is captured from the referenced product's
      * current price at creation time. The order starts in
      * {@link OrderStatus#PENDING}.
      * </p>
      *
+     * @param diningOption how the order will be consumed; must not be null
      * @param lineInputs the line items to include; each references a product
      *        by ID and a positive quantity
      * @return the saved {@link Order} with its lines
-     * @throws OrderValidationException if the list is null or empty, a
-     *         product does not exist, a product is inactive, or a quantity
-     *         is not positive
+     * @throws OrderValidationException if the dining option is null, the list
+     *         is null or empty, a product does not exist, a product is inactive,
+     *         or a quantity is not positive
      */
-    public Order createOrder(List<OrderLineInput> lineInputs) {
+    public Order createOrder(DiningOption diningOption, List<OrderLineInput> lineInputs) {
+        if (diningOption == null) {
+            throw new OrderValidationException("Dining option is required");
+        }
+
         if (lineInputs == null || lineInputs.isEmpty()) {
             throw new OrderValidationException("Order must have at least one line");
         }
 
         Order order = new Order();
         order.setStatus(OrderStatus.PENDING);
+        order.setDiningOption(diningOption);
         order.setCreatedAt(LocalDateTime.now());
 
         for (OrderLineInput input : lineInputs) {

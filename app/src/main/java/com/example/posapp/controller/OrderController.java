@@ -55,7 +55,7 @@ public class OrderController {
      * Returns HTTP 201 Created on success.
      * </p>
      *
-     * @param request the order request containing line items
+     * @param request the order request containing dining option and line items
      * @return the created order as a response DTO
      */
     @PostMapping
@@ -64,7 +64,7 @@ public class OrderController {
                 .map(line -> new OrderService.OrderLineInput(line.productId(), line.quantity()))
                 .toList();
 
-        Order order = orderService.createOrder(lineInputs);
+        Order order = orderService.createOrder(request.diningOption(), lineInputs);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(OrderResponse.from(order));
     }

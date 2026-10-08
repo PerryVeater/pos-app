@@ -4,18 +4,20 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.example.posapp.entity.DiningOption;
 import com.example.posapp.entity.Order;
 
 /**
  * Response DTO for an order.
  * <p>
- * Exposes the order ID, status, creation timestamp, line items, and computed
- * total. The total is calculated by the {@link Order#getTotal()} method and
- * represents the sum of all line subtotals.
+ * Exposes the order ID, status, dining option, creation timestamp, line items,
+ * and computed total. The total is calculated by the {@link Order#getTotal()}
+ * method and represents the sum of all line subtotals.
  * </p>
  *
  * @param id the order ID
  * @param status the order status (PENDING, CONFIRMED, COMPLETED, CANCELLED)
+ * @param diningOption how the order will be consumed (DINE_IN, TAKEOUT, ONLINE)
  * @param createdAt the timestamp when the order was created
  * @param lines the line items in the order
  * @param total the computed order total
@@ -23,6 +25,7 @@ import com.example.posapp.entity.Order;
 public record OrderResponse(
         Long id,
         String status,
+        DiningOption diningOption,
         LocalDateTime createdAt,
         List<OrderLineResponse> lines,
         BigDecimal total) {
@@ -58,6 +61,7 @@ public record OrderResponse(
         return new OrderResponse(
                 order.getId(),
                 order.getStatus().name(),
+                order.getDiningOption(),
                 order.getCreatedAt(),
                 lineResponses,
                 order.getTotal());

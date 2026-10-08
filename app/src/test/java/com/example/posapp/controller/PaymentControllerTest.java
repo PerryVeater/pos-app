@@ -24,6 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.example.posapp.dto.PaymentRequest;
 import com.example.posapp.dto.PaymentStatusUpdateRequest;
+import com.example.posapp.entity.DiningOption;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.Payment;
@@ -58,7 +59,7 @@ class PaymentControllerTest {
     @Test
     @DisplayName("POST /api/v1/payments: valid payment returns 201 with response mapping")
     void postValidPaymentReturns201() throws Exception {
-        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.of(2026, 10, 7, 12, 0));
+        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.of(2026, 10, 7, 12, 0));
         setField(order, "id", 1L);
         Payment payment = new Payment(
                 order, new BigDecimal("25.00"), PaymentMethod.CARD,
@@ -137,7 +138,7 @@ class PaymentControllerTest {
     @Test
     @DisplayName("GET /api/v1/payments/{id}: existing payment returns 200 with response mapping")
     void getExistingPaymentReturns200() throws Exception {
-        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.of(2026, 10, 7, 12, 0));
+        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.of(2026, 10, 7, 12, 0));
         setField(order, "id", 1L);
         Payment payment = new Payment(
                 order, new BigDecimal("50.00"), PaymentMethod.CASH,
@@ -172,7 +173,7 @@ class PaymentControllerTest {
     @Test
     @DisplayName("PATCH /api/v1/payments/{id}/status: valid transition returns 200 with updated payment")
     void patchValidTransitionReturns200() throws Exception {
-        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.of(2026, 10, 7, 12, 0));
+        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.of(2026, 10, 7, 12, 0));
         setField(order, "id", 1L);
         Payment payment = new Payment(
                 order, new BigDecimal("25.00"), PaymentMethod.CARD,

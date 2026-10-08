@@ -22,14 +22,15 @@ import jakarta.persistence.Table;
  * <p>
  * Mapped to the {@code orders} table (the table name avoids the SQL reserved
  * word {@code ORDER}). An order carries a lifecycle {@link OrderStatus}, a
- * creation timestamp, and a collection of {@link OrderLine}s that are
- * persisted together via cascade.
+ * {@link DiningOption}, a creation timestamp, and a collection of {@link OrderLine}s
+ * that are persisted together via cascade.
  * </p>
  * <p>
  * Fields:
  * <ul>
  *   <li>{@code id} - Unique identifier for the order.</li>
  *   <li>{@code status} - Lifecycle state of the order.</li>
+ *   <li>{@code diningOption} - How the order will be consumed.</li>
  *   <li>{@code createdAt} - Timestamp when the order was created.</li>
  *   <li>{@code lines} - Line items belonging to this order.</li>
  * </ul>
@@ -50,6 +51,14 @@ public class Order {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private OrderStatus status;
+
+    /**
+     * Dining option for the order. Stored as a {@code VARCHAR(20)} column
+     * via {@link EnumType#STRING} so the database values are human-readable.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "dining_option", nullable = false, length = 20)
+    private DiningOption diningOption;
 
     /**
      * Timestamp when the order was created. Set by the service layer at
@@ -75,10 +84,12 @@ public class Order {
     /**
      * Constructor for Order.
      * @param status the lifecycle state of the order
+     * @param diningOption how the order will be consumed
      * @param createdAt the timestamp when the order was created
      */
-    public Order(OrderStatus status, LocalDateTime createdAt) {
+    public Order(OrderStatus status, DiningOption diningOption, LocalDateTime createdAt) {
         this.status = status;
+        this.diningOption = diningOption;
         this.createdAt = createdAt;
     }
 
@@ -99,6 +110,18 @@ public class Order {
      * @param status the status of the order
      */
     public void setStatus(OrderStatus status) { this.status = status; }
+
+    /**
+     * Get the dining option of the order.
+     * @return the dining option of the order
+     */
+    public DiningOption getDiningOption() { return diningOption; }
+
+    /**
+     * Set the dining option of the order.
+     * @param diningOption the dining option of the order
+     */
+    public void setDiningOption(DiningOption diningOption) { this.diningOption = diningOption; }
 
     /**
      * Get the creation timestamp of the order.
