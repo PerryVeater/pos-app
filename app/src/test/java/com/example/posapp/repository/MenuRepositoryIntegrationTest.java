@@ -1,5 +1,6 @@
 package com.example.posapp.repository;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -21,6 +22,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import com.example.posapp.entity.Menu;
 import com.example.posapp.entity.MenuGroup;
 import com.example.posapp.entity.MenuGroupAssignment;
+import com.example.posapp.entity.MenuItem;
+import com.example.posapp.entity.MenuItemAssignment;
 
 /**
  * Integration tests for the menu / menu-group persistence stack against a
@@ -60,6 +63,12 @@ class MenuRepositoryIntegrationTest {
 
     @Autowired
     private MenuGroupAssignmentRepository assignmentRepository;
+
+    @Autowired
+    private MenuItemRepository menuItemRepository;
+
+    @Autowired
+    private MenuItemAssignmentRepository itemAssignmentRepository;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -298,5 +307,140 @@ class MenuRepositoryIntegrationTest {
     private void deleteMenuCascade(Long menuId) {
         jdbcTemplate.update("DELETE FROM menu_group_assignment WHERE menu_id = ?", menuId);
         menuRepository.deleteById(menuId);
+    }
+
+    // --- menu item assignment: schema and constraints ---
+
+    @Test
+    @DisplayName("menu_item_assignment table matches the JPA model: id, menu_group_id, menu_item_id, display_order")
+    void menuItemAssignmentTableMatchesJpaModel() {
+        List<Map<String, Object>> columns = jdbcTemplate.queryForList(
+                "SELECT column_name, data_type, is_nullable"
+                + " FROM information_schema.columns WHERE table_name = 'menu_item_assignment'"
+                + " ORDER BY ordinal_position");
+
+        assertThat(columns)
+                .extracting(column -> column.get("column_name"))
+                .containsExactly("id", "menu_group_id", "menu_item_id", "display_order");
+        assertThat(columns.get(3))
+                .containsEntry("column_name", "display_order")
+                .containsEntry("data_type", "integer")
+                .containsEntry("is_nullable", "NO");
+    }
+
+    @Test
+    @DisplayName("menu_item_assignment (menu_group_id, menu_item_id) is unique")
+    void menuItemAssignmentPairIsEnforcedUnique() {
+        MenuGroup group = menuGroupRepository.save(new MenuGroup("Integration Uniq Group"));
+        MenuItem item = menuItemRepository.save(
+                new MenuItem("Integration Uniq Cola", "INT-UNIQ-COLA", new BigDecimal("1.00"), true));
+        itemAssignmentRepository.save(new MenuItemAssignment(group, item, 1));
+
+        assertThatThrownBy(() -> itemAssignmentRepository.save(new MenuItemAssignment(group, item, 2)))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        deleteMenuGroupCascade(group.getId());
+        menuItemRepository.deleteById(item.getId());
+    }
+
+    @Test
+    @DisplayName("menu_item_assignment exposes the two expected foreign keys")
+    void menuItemAssignmentForeignKeysExist() {
+        List<Map<String, Object>> foreignKeys = jdbcTemplate.queryForList(
+                "SELECT tc.constraint_name, ccu.table_name AS referenced_table"
+                + " FROM information_schema.table_constraints tc"
+                + " JOIN information_schema.constraint_column_usage ccu"
+                + "   ON tc.constraint_name = ccu.constraint_name"
+                + "  AND tc.constraint_schema = ccu.constraint_schema"
+                + " WHERE tc.table_schema = 'public' AND tc.table_name = 'menu_item_assignment'"
+                + "   AND tc.constraint_type = 'FOREIGN KEY'"
+                + " ORDER BY tc.constraint_name");
+
+        assertThat(foreignKeys).hasSize(2);
+        assertThat(foreignKeys)
+                .extracting(row -> (String) row.get("constraint_name"))
+                .containsExactly("fk_menu_item_assignment_group", "fk_menu_item_assignment_item");
+        assertThat(foreignKeys)
+                .extracting(row -> (String) row.get("referenced_table"))
+                .containsExactlyInAnyOrder("menu_group", "product");
+    }
+
+    // --- menu item assignment: reusability and display order ---
+
+    @Test
+    @DisplayName("a MenuItem can be assigned to multiple MenuGroups (reusability)")
+    void menuItemIsReusableAcrossGroups() {
+        MenuGroup appetizers = menuGroupRepository.save(new MenuGroup("Integration Item Reuse Apps"));
+        MenuGroup kids = menuGroupRepository.save(new MenuGroup("Integration Item Reuse Kids"));
+        MenuItem cola = menuItemRepository.save(
+                new MenuItem("Integration Reuse Cola", "INT-REUSE-COLA", new BigDecimal("1.00"), true));
+
+        itemAssignmentRepository.save(new MenuItemAssignment(appetizers, cola, 1));
+        itemAssignmentRepository.save(new MenuItemAssignment(kids, cola, 2));
+
+        assertThat(itemAssignmentRepository.findByMenuGroupIdOrderByDisplayOrder(appetizers.getId()))
+                .extracting(assignment -> assignment.getMenuItem().getId())
+                .containsExactly(cola.getId());
+        assertThat(itemAssignmentRepository.findByMenuGroupIdOrderByDisplayOrder(kids.getId()))
+                .extracting(assignment -> assignment.getMenuItem().getId())
+                .containsExactly(cola.getId());
+
+        deleteMenuGroupCascade(appetizers.getId());
+        deleteMenuGroupCascade(kids.getId());
+        menuItemRepository.deleteById(cola.getId());
+    }
+
+    @Test
+    @DisplayName("a MenuGroup can contain multiple MenuItems and returns them in display order")
+    void menuGroupContainsMultipleItemsInDisplayOrder() {
+        MenuGroup group = menuGroupRepository.save(new MenuGroup("Integration Order Group"));
+        MenuItem first = menuItemRepository.save(
+                new MenuItem("Integration A", "INT-ORDER-A", new BigDecimal("1.00"), true));
+        MenuItem second = menuItemRepository.save(
+                new MenuItem("Integration B", "INT-ORDER-B", new BigDecimal("2.00"), true));
+        MenuItem third = menuItemRepository.save(
+                new MenuItem("Integration C", "INT-ORDER-C", new BigDecimal("3.00"), true));
+
+        itemAssignmentRepository.save(new MenuItemAssignment(group, second, 5));
+        itemAssignmentRepository.save(new MenuItemAssignment(group, third, 7));
+        itemAssignmentRepository.save(new MenuItemAssignment(group, first, 1));
+
+        assertThat(itemAssignmentRepository.findByMenuGroupIdOrderByDisplayOrder(group.getId()))
+                .extracting(assignment -> assignment.getMenuItem().getName())
+                .containsExactly("Integration A", "Integration B", "Integration C");
+
+        deleteMenuGroupCascade(group.getId());
+        menuItemRepository.deleteById(first.getId());
+        menuItemRepository.deleteById(second.getId());
+        menuItemRepository.deleteById(third.getId());
+    }
+
+    @Test
+    @DisplayName("removing a menu item assignment does not delete the MenuItem")
+    void unassignItemKeepsMenuItemIntact() {
+        MenuGroup group = menuGroupRepository.save(new MenuGroup("Integration Item Unassign Group"));
+        MenuItem item = menuItemRepository.save(
+                new MenuItem("Integration Survive Cola", "INT-SURVIVE-COLA", new BigDecimal("1.00"), true));
+        MenuItemAssignment assignment = itemAssignmentRepository.save(
+                new MenuItemAssignment(group, item, 1));
+
+        itemAssignmentRepository.delete(assignment);
+
+        assertThat(itemAssignmentRepository.findByMenuGroupIdOrderByDisplayOrder(group.getId()))
+                .isEmpty();
+        assertThat(menuItemRepository.findById(item.getId())).isPresent();
+
+        deleteMenuGroupCascade(group.getId());
+        menuItemRepository.deleteById(item.getId());
+    }
+
+    /**
+     * Delete every menu item assignment attached to the group, then the
+     * group itself. Used so the FK constraint from menu_item_assignment
+     * does not block cleanup.
+     */
+    private void deleteMenuGroupCascade(Long menuGroupId) {
+        jdbcTemplate.update("DELETE FROM menu_item_assignment WHERE menu_group_id = ?", menuGroupId);
+        menuGroupRepository.deleteById(menuGroupId);
     }
 }

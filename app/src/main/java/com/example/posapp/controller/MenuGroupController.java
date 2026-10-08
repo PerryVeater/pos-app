@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.example.posapp.dto.MenuItemAssignmentRequest;
+import com.example.posapp.dto.MenuItemAssignmentResponse;
 import com.example.posapp.dto.MenuGroupRequest;
 import com.example.posapp.dto.MenuGroupResponse;
 import com.example.posapp.entity.MenuGroup;
@@ -100,6 +102,46 @@ public class MenuGroupController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteMenuGroup(@PathVariable Long id) {
         menuGroupService.deleteMenuGroup(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * List the menu items assigned to a menu group, ordered by display position.
+     * @param id the menu group ID
+     * @return the ordered assignments
+     */
+    @GetMapping("/{id}/menu-items")
+    public List<MenuItemAssignmentResponse> listMenuItems(@PathVariable Long id) {
+        return menuGroupService.listItemAssignments(id).stream()
+                .map(MenuItemAssignmentResponse::from)
+                .toList();
+    }
+
+    /**
+     * Assign a menu item to a menu group at the given display order.
+     * @param id the menu group ID
+     * @param request the assignment payload (menuItemId and displayOrder)
+     * @return the created assignment
+     */
+    @PostMapping("/{id}/menu-items")
+    public ResponseEntity<MenuItemAssignmentResponse> assignMenuItem(
+            @PathVariable Long id,
+            @Valid @RequestBody MenuItemAssignmentRequest request) {
+        return ResponseEntity.status(201).body(MenuItemAssignmentResponse.from(
+                menuGroupService.assignItem(id, request.menuItemId(), request.displayOrder())));
+    }
+
+    /**
+     * Remove a menu item assignment from a menu group.
+     * @param id the menu group ID
+     * @param menuItemId the menu item ID
+     * @return 204 No Content
+     */
+    @DeleteMapping("/{id}/menu-items/{menuItemId}")
+    public ResponseEntity<Void> unassignMenuItem(
+            @PathVariable Long id,
+            @PathVariable Long menuItemId) {
+        menuGroupService.unassignItem(id, menuItemId);
         return ResponseEntity.noContent().build();
     }
 }

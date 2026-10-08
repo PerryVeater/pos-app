@@ -27,7 +27,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.example.posapp.entity.MenuGroup;
+import com.example.posapp.entity.MenuItem;
+import com.example.posapp.entity.MenuItemAssignment;
 import com.example.posapp.exception.MenuGroupNotFoundException;
+import com.example.posapp.exception.MenuItemNotFoundException;
 import com.example.posapp.exception.MenuValidationException;
 import com.example.posapp.service.MenuGroupService;
 
@@ -216,5 +219,124 @@ class MenuGroupControllerTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.title").value("Invalid menu"))
                 .andExpect(jsonPath("$.detail").value(containsString("still assigned")));
+    }
+
+    // --- GET /api/v1/menu-groups/{id}/menu-items ---
+
+    @Test
+    @DisplayName("GET /api/v1/menu-groups/{id}/menu-items returns assignments in display order")
+    void listMenuItemsReturnsOrdered() throws Exception {
+        MenuGroup group = new MenuGroup("Appetizers");
+        MenuItem cola = new MenuItem("Cola", "COLA-001", null, true);
+        MenuItem fries = new MenuItem("Fries", "FRIES-001", null, true);
+        when(menuGroupService.listItemAssignments(1L)).thenReturn(java.util.List.of(
+                new MenuItemAssignment(group, cola, 1),
+                new MenuItemAssignment(group, fries, 2)));
+
+        mockMvc.perform(get("/api/v1/menu-groups/1/menu-items"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].menuItemName").value("Cola"))
+                .andExpect(jsonPath("$[0].displayOrder").value(1))
+                .andExpect(jsonPath("$[1].menuItemName").value("Fries"))
+                .andExpect(jsonPath("$[1].displayOrder").value(2));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/menu-groups/{id}/menu-items returns 404 for a missing group")
+    void listMenuItemsReturns404ForMissingGroup() throws Exception {
+        when(menuGroupService.listItemAssignments(99L)).thenThrow(new MenuGroupNotFoundException(99L));
+
+        mockMvc.perform(get("/api/v1/menu-groups/99/menu-items"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Menu group not found"));
+    }
+
+    // --- POST /api/v1/menu-groups/{id}/menu-items ---
+
+    @Test
+    @DisplayName("POST /api/v1/menu-groups/{id}/menu-items returns 201 with the new assignment")
+    void assignMenuItemReturns201() throws Exception {
+        MenuGroup group = new MenuGroup("Appetizers");
+        MenuItem cola = new MenuItem("Cola", "COLA-001", null, true);
+        when(menuGroupService.assignItem(1L, 2L, 3))
+                .thenReturn(new MenuItemAssignment(group, cola, 3));
+
+        mockMvc.perform(post("/api/v1/menu-groups/1/menu-items")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"menuItemId\":2,\"displayOrder\":3}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.menuItemName").value("Cola"))
+                .andExpect(jsonPath("$.displayOrder").value(3));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/menu-groups/{id}/menu-items with missing menuItemId returns 400")
+    void assignMenuItemMissingIdReturns400() throws Exception {
+        mockMvc.perform(post("/api/v1/menu-groups/1/menu-items")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"displayOrder\":3}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.detail").value(containsString("menuItemId")));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/menu-groups/{id}/menu-items with missing displayOrder returns 400")
+    void assignMenuItemMissingDisplayOrderReturns400() throws Exception {
+        mockMvc.perform(post("/api/v1/menu-groups/1/menu-items")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"menuItemId\":2}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.detail").value(containsString("displayOrder")));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/menu-groups/{id}/menu-items for a missing item returns 404")
+    void assignMenuItemMissingItemReturns404() throws Exception {
+        when(menuGroupService.assignItem(1L, 99L, 1)).thenThrow(new MenuItemNotFoundException(99L));
+
+        mockMvc.perform(post("/api/v1/menu-groups/1/menu-items")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"menuItemId\":99,\"displayOrder\":1}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Menu item not found"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/menu-groups/{id}/menu-items for a duplicate pair returns 400")
+    void assignMenuItemDuplicateReturns400() throws Exception {
+        when(menuGroupService.assignItem(1L, 2L, 1)).thenThrow(new MenuValidationException(
+                "Menu item already assigned to menu group: menuGroupId=1, menuItemId=2"));
+
+        mockMvc.perform(post("/api/v1/menu-groups/1/menu-items")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"menuItemId\":2,\"displayOrder\":1}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid menu"))
+                .andExpect(jsonPath("$.detail").value(containsString("already assigned")));
+    }
+
+    // --- DELETE /api/v1/menu-groups/{id}/menu-items/{menuItemId} ---
+
+    @Test
+    @DisplayName("DELETE /api/v1/menu-groups/{id}/menu-items/{menuItemId} returns 204")
+    void unassignMenuItemReturns204() throws Exception {
+        mockMvc.perform(delete("/api/v1/menu-groups/1/menu-items/2"))
+                .andExpect(status().isNoContent());
+
+        verify(menuGroupService).unassignItem(1L, 2L);
+    }
+
+    @Test
+    @DisplayName("DELETE /api/v1/menu-groups/{id}/menu-items/{menuItemId} returns 404 for a missing assignment")
+    void unassignMenuItemMissingReturns404() throws Exception {
+        org.mockito.Mockito.doThrow(new MenuItemNotFoundException(2L))
+                .when(menuGroupService).unassignItem(1L, 2L);
+
+        mockMvc.perform(delete("/api/v1/menu-groups/1/menu-items/2"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Menu item not found"));
     }
 }

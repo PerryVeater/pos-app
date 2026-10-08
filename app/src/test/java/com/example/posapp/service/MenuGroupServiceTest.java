@@ -18,10 +18,15 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.example.posapp.entity.MenuGroup;
+import com.example.posapp.entity.MenuItem;
+import com.example.posapp.entity.MenuItemAssignment;
 import com.example.posapp.exception.MenuGroupNotFoundException;
+import com.example.posapp.exception.MenuItemNotFoundException;
 import com.example.posapp.exception.MenuValidationException;
 import com.example.posapp.repository.MenuGroupAssignmentRepository;
 import com.example.posapp.repository.MenuGroupRepository;
+import com.example.posapp.repository.MenuItemAssignmentRepository;
+import com.example.posapp.repository.MenuItemRepository;
 
 /**
  * Unit tests for the {@link MenuGroupService} business rules.
@@ -40,6 +45,12 @@ class MenuGroupServiceTest {
 
     @Mock
     private MenuGroupAssignmentRepository assignmentRepo;
+
+    @Mock
+    private MenuItemAssignmentRepository itemAssignmentRepo;
+
+    @Mock
+    private MenuItemRepository menuItemRepo;
 
     @InjectMocks
     private MenuGroupService menuGroupService;
@@ -250,5 +261,132 @@ class MenuGroupServiceTest {
         assertThat(groups).hasSize(2)
                 .extracting(MenuGroup::getName)
                 .containsExactly("Appetizers", "Desserts");
+    }
+
+    // --- listItemAssignments ---
+
+    @Test
+    @DisplayName("listItemAssignments: returns the group's items in display order")
+    void listItemAssignmentsReturnsOrdered() {
+        MenuGroup group = new MenuGroup("Appetizers");
+        MenuItem cola = new MenuItem("Cola", "COLA-001", null, true);
+        MenuItem fries = new MenuItem("Fries", "FRIES-001", null, true);
+        when(menuGroupRepo.existsById(1L)).thenReturn(true);
+        when(itemAssignmentRepo.findByMenuGroupIdOrderByDisplayOrder(1L)).thenReturn(List.of(
+                new MenuItemAssignment(group, cola, 1),
+                new MenuItemAssignment(group, fries, 2)));
+
+        List<MenuItemAssignment> result = menuGroupService.listItemAssignments(1L);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getMenuItem().getName()).isEqualTo("Cola");
+        assertThat(result.get(1).getMenuItem().getName()).isEqualTo("Fries");
+    }
+
+    @Test
+    @DisplayName("listItemAssignments: throws MenuGroupNotFoundException for a missing group")
+    void listItemAssignmentsThrowsForMissingGroup() {
+        when(menuGroupRepo.existsById(99L)).thenReturn(false);
+
+        assertThatThrownBy(() -> menuGroupService.listItemAssignments(99L))
+                .isInstanceOf(MenuGroupNotFoundException.class);
+    }
+
+    // --- assignItem ---
+
+    @Test
+    @DisplayName("assignItem: existing group and unassigned item create a new assignment")
+    void assignItemCreatesAssignment() {
+        MenuGroup group = new MenuGroup("Appetizers");
+        MenuItem cola = new MenuItem("Cola", "COLA-001", null, true);
+        when(menuGroupRepo.findById(1L)).thenReturn(Optional.of(group));
+        when(menuItemRepo.findById(2L)).thenReturn(Optional.of(cola));
+        when(itemAssignmentRepo.existsByMenuGroupIdAndMenuItemId(1L, 2L)).thenReturn(false);
+        when(itemAssignmentRepo.save(any(MenuItemAssignment.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        MenuItemAssignment saved = menuGroupService.assignItem(1L, 2L, 3);
+
+        assertThat(saved.getMenuGroup()).isSameAs(group);
+        assertThat(saved.getMenuItem()).isSameAs(cola);
+        assertThat(saved.getDisplayOrder()).isEqualTo(3);
+        verify(itemAssignmentRepo).save(any(MenuItemAssignment.class));
+    }
+
+    @Test
+    @DisplayName("assignItem: missing group throws MenuGroupNotFoundException and nothing is saved")
+    void assignItemMissingGroupThrows() {
+        when(menuGroupRepo.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> menuGroupService.assignItem(99L, 1L, 1))
+                .isInstanceOf(MenuGroupNotFoundException.class);
+
+        verify(itemAssignmentRepo, never()).save(any(MenuItemAssignment.class));
+    }
+
+    @Test
+    @DisplayName("assignItem: missing menu item throws MenuItemNotFoundException and nothing is saved")
+    void assignItemMissingMenuItemThrows() {
+        when(menuGroupRepo.findById(1L)).thenReturn(Optional.of(new MenuGroup("Appetizers")));
+        when(menuItemRepo.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> menuGroupService.assignItem(1L, 99L, 1))
+                .isInstanceOf(MenuItemNotFoundException.class);
+
+        verify(itemAssignmentRepo, never()).save(any(MenuItemAssignment.class));
+    }
+
+    @Test
+    @DisplayName("assignItem: duplicate (group, item) pair throws MenuValidationException")
+    void assignItemDuplicateThrows() {
+        when(menuGroupRepo.findById(1L)).thenReturn(Optional.of(new MenuGroup("Appetizers")));
+        MenuItem cola = new MenuItem("Cola", "COLA-001", null, true);
+        when(menuItemRepo.findById(2L)).thenReturn(Optional.of(cola));
+        when(itemAssignmentRepo.existsByMenuGroupIdAndMenuItemId(1L, 2L)).thenReturn(true);
+
+        assertThatThrownBy(() -> menuGroupService.assignItem(1L, 2L, 1))
+                .isInstanceOf(MenuValidationException.class)
+                .hasMessageContaining("already assigned");
+
+        verify(itemAssignmentRepo, never()).save(any(MenuItemAssignment.class));
+    }
+
+    // --- unassignItem ---
+
+    @Test
+    @DisplayName("unassignItem: existing assignment is deleted")
+    void unassignItemDeletesAssignment() {
+        MenuItemAssignment assignment = new MenuItemAssignment(
+                new MenuGroup("Appetizers"),
+                new MenuItem("Cola", "COLA-001", null, true),
+                1);
+        when(menuGroupRepo.existsById(1L)).thenReturn(true);
+        when(itemAssignmentRepo.findByMenuGroupIdAndMenuItemId(1L, 2L)).thenReturn(Optional.of(assignment));
+
+        menuGroupService.unassignItem(1L, 2L);
+
+        verify(itemAssignmentRepo).delete(assignment);
+    }
+
+    @Test
+    @DisplayName("unassignItem: missing group throws MenuGroupNotFoundException")
+    void unassignItemMissingGroupThrows() {
+        when(menuGroupRepo.existsById(99L)).thenReturn(false);
+
+        assertThatThrownBy(() -> menuGroupService.unassignItem(99L, 1L))
+                .isInstanceOf(MenuGroupNotFoundException.class);
+
+        verify(itemAssignmentRepo, never()).delete(any(MenuItemAssignment.class));
+    }
+
+    @Test
+    @DisplayName("unassignItem: missing assignment throws MenuItemNotFoundException")
+    void unassignItemMissingAssignmentThrows() {
+        when(menuGroupRepo.existsById(1L)).thenReturn(true);
+        when(itemAssignmentRepo.findByMenuGroupIdAndMenuItemId(1L, 2L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> menuGroupService.unassignItem(1L, 2L))
+                .isInstanceOf(MenuItemNotFoundException.class);
+
+        verify(itemAssignmentRepo, never()).delete(any(MenuItemAssignment.class));
     }
 }

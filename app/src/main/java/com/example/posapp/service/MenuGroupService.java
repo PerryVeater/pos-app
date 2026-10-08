@@ -6,17 +6,25 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 import com.example.posapp.entity.MenuGroup;
+import com.example.posapp.entity.MenuItem;
+import com.example.posapp.entity.MenuItemAssignment;
 import com.example.posapp.exception.MenuGroupNotFoundException;
+import com.example.posapp.exception.MenuItemNotFoundException;
 import com.example.posapp.exception.MenuValidationException;
 import com.example.posapp.repository.MenuGroupAssignmentRepository;
 import com.example.posapp.repository.MenuGroupRepository;
+import com.example.posapp.repository.MenuItemAssignmentRepository;
+import com.example.posapp.repository.MenuItemRepository;
 
 /**
- * Service layer for {@link MenuGroup} entities.
+ * Service layer for {@link MenuGroup} entities and their menu item
+ * assignments.
  * <p>
  * Menu groups are reusable across menus; this service enforces the
- * name-required / name-unique rules and refuses to delete a group that is
- * still assigned to a menu, so callers must first unassign it.
+ * name-required / name-unique rules, refuses to delete a group that is
+ * still assigned to a menu, and manages the (group, item) assignment
+ * records that display {@link MenuItem}s inside a group in a caller-
+ * supplied order.
  * </p>
  */
 @Service
@@ -24,16 +32,24 @@ public class MenuGroupService {
 
     private final MenuGroupRepository menuGroupRepo;
     private final MenuGroupAssignmentRepository assignmentRepo;
+    private final MenuItemAssignmentRepository itemAssignmentRepo;
+    private final MenuItemRepository menuItemRepo;
 
     /**
      * Constructor for MenuGroupService.
      * @param menuGroupRepo the repository for menu groups
      * @param assignmentRepo the repository for menu ↔ menu group assignments
+     * @param itemAssignmentRepo the repository for menu group ↔ menu item assignments
+     * @param menuItemRepo the repository for menu items
      */
     public MenuGroupService(MenuGroupRepository menuGroupRepo,
-                            MenuGroupAssignmentRepository assignmentRepo) {
+                            MenuGroupAssignmentRepository assignmentRepo,
+                            MenuItemAssignmentRepository itemAssignmentRepo,
+                            MenuItemRepository menuItemRepo) {
         this.menuGroupRepo = menuGroupRepo;
         this.assignmentRepo = assignmentRepo;
+        this.itemAssignmentRepo = itemAssignmentRepo;
+        this.menuItemRepo = menuItemRepo;
     }
 
     /**
@@ -111,6 +127,62 @@ public class MenuGroupService {
             throw new IllegalArgumentException("ID cannot be null");
         }
         return menuGroupRepo.findById(id);
+    }
+
+    /**
+     * Return the menu item assignments attached to a menu group, ordered by
+     * display position.
+     * @param menuGroupId the menu group ID
+     * @return the ordered assignments (empty when the group has none)
+     * @throws MenuGroupNotFoundException if no group exists with the ID
+     */
+    public List<MenuItemAssignment> listItemAssignments(Long menuGroupId) {
+        if (!menuGroupRepo.existsById(menuGroupId)) {
+            throw new MenuGroupNotFoundException(menuGroupId);
+        }
+        return itemAssignmentRepo.findByMenuGroupIdOrderByDisplayOrder(menuGroupId);
+    }
+
+    /**
+     * Assign a menu item to a menu group at a specific display position.
+     * @param menuGroupId the menu group ID
+     * @param menuItemId the menu item ID
+     * @param displayOrder the position of the item within the group
+     * @return the saved assignment
+     * @throws MenuGroupNotFoundException if the group does not exist
+     * @throws MenuItemNotFoundException if the item does not exist
+     * @throws MenuValidationException if the item is already assigned to the group
+     */
+    public MenuItemAssignment assignItem(Long menuGroupId, Long menuItemId, int displayOrder) {
+        MenuGroup group = menuGroupRepo.findById(menuGroupId)
+                .orElseThrow(() -> new MenuGroupNotFoundException(menuGroupId));
+        MenuItem item = menuItemRepo.findById(menuItemId)
+                .orElseThrow(() -> new MenuItemNotFoundException(menuItemId));
+        if (itemAssignmentRepo.existsByMenuGroupIdAndMenuItemId(menuGroupId, menuItemId)) {
+            throw new MenuValidationException(
+                    "Menu item already assigned to menu group: menuGroupId=" + menuGroupId
+                            + ", menuItemId=" + menuItemId);
+        }
+        return itemAssignmentRepo.save(new MenuItemAssignment(group, item, displayOrder));
+    }
+
+    /**
+     * Remove a specific assignment between a menu group and a menu item.
+     * A missing pair is reported as 404 via {@link MenuItemNotFoundException}
+     * because there is no assignment to remove.
+     * @param menuGroupId the menu group ID
+     * @param menuItemId the menu item ID
+     * @throws MenuGroupNotFoundException if the group does not exist
+     * @throws MenuItemNotFoundException if the assignment does not exist
+     */
+    public void unassignItem(Long menuGroupId, Long menuItemId) {
+        if (!menuGroupRepo.existsById(menuGroupId)) {
+            throw new MenuGroupNotFoundException(menuGroupId);
+        }
+        MenuItemAssignment assignment = itemAssignmentRepo
+                .findByMenuGroupIdAndMenuItemId(menuGroupId, menuItemId)
+                .orElseThrow(() -> new MenuItemNotFoundException(menuItemId));
+        itemAssignmentRepo.delete(assignment);
     }
 
     /**
