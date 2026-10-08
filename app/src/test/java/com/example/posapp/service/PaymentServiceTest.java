@@ -22,6 +22,7 @@ import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.Payment;
 import com.example.posapp.entity.PaymentMethod;
 import com.example.posapp.entity.PaymentStatus;
+import com.example.posapp.exception.PaymentValidationException;
 import com.example.posapp.repository.OrderRepository;
 import com.example.posapp.repository.PaymentRepository;
 
@@ -63,13 +64,13 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("createPayment: throws IllegalArgumentException when order does not exist")
+    @DisplayName("createPayment: throws PaymentValidationException when order does not exist")
     void createPaymentThrowsWhenOrderNotFound() {
         when(orderRepo.findById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() ->
                 paymentService.createPayment(99L, new BigDecimal("10.00"), PaymentMethod.CASH))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(PaymentValidationException.class)
                 .hasMessageContaining("Order not found: 99");
     }
 
@@ -117,5 +118,46 @@ class PaymentServiceTest {
         when(paymentRepo.findById(99L)).thenReturn(Optional.empty());
 
         assertThat(paymentService.getPaymentById(99L)).isEmpty();
+    }
+
+    // --- Payment validation rules ---
+
+    @Test
+    @DisplayName("createPayment: rejects zero amount")
+    void createPaymentRejectsZeroAmount() {
+        assertThatThrownBy(() ->
+                paymentService.createPayment(1L, BigDecimal.ZERO, PaymentMethod.CARD))
+                .isInstanceOf(PaymentValidationException.class)
+                .hasMessageContaining("Payment amount must be greater than zero");
+    }
+
+    @Test
+    @DisplayName("createPayment: rejects negative amount")
+    void createPaymentRejectsNegativeAmount() {
+        assertThatThrownBy(() ->
+                paymentService.createPayment(1L, new BigDecimal("-5.00"), PaymentMethod.CARD))
+                .isInstanceOf(PaymentValidationException.class)
+                .hasMessageContaining("Payment amount must be greater than zero");
+    }
+
+    @Test
+    @DisplayName("createPayment: rejects null amount")
+    void createPaymentRejectsNullAmount() {
+        assertThatThrownBy(() ->
+                paymentService.createPayment(1L, null, PaymentMethod.CARD))
+                .isInstanceOf(PaymentValidationException.class)
+                .hasMessageContaining("Payment amount must be greater than zero");
+    }
+
+    @Test
+    @DisplayName("createPayment: rejects cancelled order")
+    void createPaymentRejectsCancelledOrder() {
+        Order order = new Order(OrderStatus.CANCELLED, LocalDateTime.now());
+        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() ->
+                paymentService.createPayment(1L, new BigDecimal("25.00"), PaymentMethod.CARD))
+                .isInstanceOf(PaymentValidationException.class)
+                .hasMessageContaining("Cannot create payment for a cancelled order: 1");
     }
 }

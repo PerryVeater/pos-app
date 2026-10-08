@@ -4,11 +4,13 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -22,6 +24,8 @@ import com.example.posapp.entity.Payment;
 import com.example.posapp.entity.PaymentMethod;
 import com.example.posapp.entity.PaymentStatus;
 import com.example.posapp.entity.Product;
+import com.example.posapp.exception.PaymentValidationException;
+import com.example.posapp.service.PaymentService;
 
 /**
  * Integration tests for {@link PaymentRepository} using Testcontainers with
@@ -30,6 +34,7 @@ import com.example.posapp.entity.Product;
  */
 @DataJpaTest
 @Testcontainers
+@Import(PaymentService.class)
 class PaymentRepositoryIntegrationTest {
 
     @Container
@@ -54,6 +59,9 @@ class PaymentRepositoryIntegrationTest {
 
     @Autowired
     private ProductRepository productRepository;
+
+    @Autowired
+    private PaymentService paymentService;
 
     @Test
     @DisplayName("V5 migration: payments table exists with correct schema")
@@ -203,6 +211,98 @@ class PaymentRepositoryIntegrationTest {
         paymentRepository.deleteById(completed.getId());
         paymentRepository.deleteById(failed.getId());
         paymentRepository.deleteById(refunded.getId());
+        orderRepository.deleteById(savedOrder.getId());
+        productRepository.deleteById(product.getId());
+    }
+
+    // --- PaymentService validation tests against real database ---
+
+    @Test
+    @DisplayName("PaymentService.createPayment: rejects zero amount against real DB")
+    void paymentServiceRejectsZeroAmount() {
+        Product product = productRepository.save(
+                new Product("Zero Product", "PAY-PROD-006", new BigDecimal("10.00"), true));
+        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
+        Order savedOrder = orderRepository.save(order);
+
+        assertThatThrownBy(() ->
+                paymentService.createPayment(savedOrder.getId(), BigDecimal.ZERO, PaymentMethod.CARD))
+                .isInstanceOf(PaymentValidationException.class)
+                .hasMessageContaining("Payment amount must be greater than zero");
+
+        // Cleanup
+        orderRepository.deleteById(savedOrder.getId());
+        productRepository.deleteById(product.getId());
+    }
+
+    @Test
+    @DisplayName("PaymentService.createPayment: rejects negative amount against real DB")
+    void paymentServiceRejectsNegativeAmount() {
+        Product product = productRepository.save(
+                new Product("Neg Product", "PAY-PROD-007", new BigDecimal("10.00"), true));
+        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
+        Order savedOrder = orderRepository.save(order);
+
+        assertThatThrownBy(() ->
+                paymentService.createPayment(savedOrder.getId(), new BigDecimal("-5.00"), PaymentMethod.CARD))
+                .isInstanceOf(PaymentValidationException.class)
+                .hasMessageContaining("Payment amount must be greater than zero");
+
+        // Cleanup
+        orderRepository.deleteById(savedOrder.getId());
+        productRepository.deleteById(product.getId());
+    }
+
+    @Test
+    @DisplayName("PaymentService.createPayment: rejects missing order against real DB")
+    void paymentServiceRejectsMissingOrder() {
+        assertThatThrownBy(() ->
+                paymentService.createPayment(999L, new BigDecimal("10.00"), PaymentMethod.CARD))
+                .isInstanceOf(PaymentValidationException.class)
+                .hasMessageContaining("Order not found: 999");
+    }
+
+    @Test
+    @DisplayName("PaymentService.createPayment: rejects cancelled order against real DB")
+    void paymentServiceRejectsCancelledOrder() {
+        Product product = productRepository.save(
+                new Product("Cancel Product", "PAY-PROD-008", new BigDecimal("10.00"), true));
+        Order order = new Order(OrderStatus.CANCELLED, LocalDateTime.now());
+        order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
+        Order savedOrder = orderRepository.save(order);
+
+        assertThatThrownBy(() ->
+                paymentService.createPayment(savedOrder.getId(), new BigDecimal("10.00"), PaymentMethod.CARD))
+                .isInstanceOf(PaymentValidationException.class)
+                .hasMessageContaining("Cannot create payment for a cancelled order");
+
+        // Cleanup
+        orderRepository.deleteById(savedOrder.getId());
+        productRepository.deleteById(product.getId());
+    }
+
+    @Test
+    @DisplayName("PaymentService.createPayment: valid payment starts PENDING against real DB")
+    void paymentServiceCreatesPendingPayment() {
+        Product product = productRepository.save(
+                new Product("Valid Product", "PAY-PROD-009", new BigDecimal("20.00"), true));
+        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.now());
+        order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
+        Order savedOrder = orderRepository.save(order);
+
+        Payment payment = paymentService.createPayment(
+                savedOrder.getId(), new BigDecimal("20.00"), PaymentMethod.CARD);
+
+        assertThat(payment.getId()).isNotNull();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(payment.getAmount()).isEqualByComparingTo("20.00");
+        assertThat(payment.getMethod()).isEqualTo(PaymentMethod.CARD);
+        assertThat(payment.getOrder().getId()).isEqualTo(savedOrder.getId());
+
+        // Cleanup
+        paymentRepository.deleteById(payment.getId());
         orderRepository.deleteById(savedOrder.getId());
         productRepository.deleteById(product.getId());
     }
