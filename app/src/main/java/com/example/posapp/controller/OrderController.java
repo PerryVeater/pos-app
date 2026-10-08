@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.example.posapp.dto.OrderRequest;
 import com.example.posapp.dto.OrderResponse;
+import com.example.posapp.dto.OrderStatusUpdateRequest;
 import com.example.posapp.entity.Order;
 import com.example.posapp.exception.OrderNotFoundException;
 import com.example.posapp.service.OrderService;
@@ -83,6 +85,28 @@ public class OrderController {
     public ResponseEntity<OrderResponse> getOrder(@PathVariable Long id) {
         Order order = orderService.getOrderById(id)
                 .orElseThrow(() -> new OrderNotFoundException(id));
+        return ResponseEntity.ok(OrderResponse.from(order));
+    }
+
+    /**
+     * Transition an order's status.
+     * <p>
+     * Delegates to {@link OrderService#transitionStatus} which enforces the
+     * allowed transition rules. Returns HTTP 200 with the updated order on
+     * success. Invalid transitions throw {@link com.example.posapp.exception.OrderValidationException}
+     * (mapped to 400). Missing orders throw {@link OrderNotFoundException}
+     * (mapped to 404).
+     * </p>
+     *
+     * @param id the order ID
+     * @param request the status update request containing the target status
+     * @return the updated order as a response DTO
+     */
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<OrderResponse> updateOrderStatus(
+            @PathVariable Long id,
+            @RequestBody OrderStatusUpdateRequest request) {
+        Order order = orderService.transitionStatus(id, request.status());
         return ResponseEntity.ok(OrderResponse.from(order));
     }
 }

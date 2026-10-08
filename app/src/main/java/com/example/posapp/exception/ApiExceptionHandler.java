@@ -5,6 +5,7 @@ import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -85,6 +86,19 @@ public class ApiExceptionHandler {
                 .sorted()
                 .collect(Collectors.joining("; "));
         return problem(HttpStatus.BAD_REQUEST, "Validation failed", detail);
+    }
+
+    /**
+     * Map unreadable or malformed request bodies to HTTP 400 Bad Request.
+     * This covers cases such as invalid enum values, malformed JSON, or
+     * type mismatches during deserialization.
+     * @param ex the exception raised during request body deserialization
+     * @return a problem detail describing the parse error
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ProblemDetail handleMessageNotReadable(HttpMessageNotReadableException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid request body",
+                "Failed to parse request body: " + ex.getMostSpecificCause().getMessage());
     }
 
     /**

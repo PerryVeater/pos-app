@@ -18,15 +18,18 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.example.posapp.dto.OrderRequest;
+import com.example.posapp.dto.OrderStatusUpdateRequest;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.Product;
+import com.example.posapp.exception.OrderNotFoundException;
 import com.example.posapp.exception.OrderValidationException;
 import com.example.posapp.service.OrderService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -123,6 +126,74 @@ class OrderControllerTest {
         when(orderService.getOrderById(99L)).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/api/v1/orders/99"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Order not found"))
+                .andExpect(jsonPath("$.detail").value("Order not found: 99"));
+    }
+
+    // --- PATCH /api/v1/orders/{id}/status ---
+
+    @Test
+    @DisplayName("PATCH /api/v1/orders/{id}/status: valid transition returns 200 with updated order")
+    void patchValidTransitionReturns200() throws Exception {
+        Product cola = new Product("Cola", "COLA-001", new BigDecimal("2.50"), true);
+        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.of(2026, 10, 7, 12, 0));
+        order.addLine(new OrderLine(cola, 2, new BigDecimal("2.50")));
+
+        when(orderService.transitionStatus(1L, OrderStatus.CONFIRMED)).thenReturn(order);
+
+        OrderStatusUpdateRequest request = new OrderStatusUpdateRequest(OrderStatus.CONFIRMED);
+
+        mockMvc.perform(patch("/api/v1/orders/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.lines").isArray())
+                .andExpect(jsonPath("$.total").value(5.00));
+
+        verify(orderService).transitionStatus(1L, OrderStatus.CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/orders/{id}/status: invalid status value returns 400")
+    void patchInvalidStatusValueReturns400() throws Exception {
+        String invalidJson = "{\"status\":\"INVALID_STATUS\"}";
+
+        mockMvc.perform(patch("/api/v1/orders/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(invalidJson))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid request body"));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/orders/{id}/status: invalid business transition returns 400")
+    void patchInvalidTransitionReturns400() throws Exception {
+        when(orderService.transitionStatus(1L, OrderStatus.COMPLETED))
+                .thenThrow(new OrderValidationException("Cannot transition from PENDING to COMPLETED"));
+
+        OrderStatusUpdateRequest request = new OrderStatusUpdateRequest(OrderStatus.COMPLETED);
+
+        mockMvc.perform(patch("/api/v1/orders/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid order"))
+                .andExpect(jsonPath("$.detail").value("Cannot transition from PENDING to COMPLETED"));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/orders/{id}/status: missing order returns 404")
+    void patchMissingOrderReturns404() throws Exception {
+        when(orderService.transitionStatus(99L, OrderStatus.CONFIRMED))
+                .thenThrow(new OrderNotFoundException(99L));
+
+        OrderStatusUpdateRequest request = new OrderStatusUpdateRequest(OrderStatus.CONFIRMED);
+
+        mockMvc.perform(patch("/api/v1/orders/99/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Order not found"))
                 .andExpect(jsonPath("$.detail").value("Order not found: 99"));
