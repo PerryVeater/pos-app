@@ -60,7 +60,7 @@ class ProductRepositoryIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    @DisplayName("context boots: Flyway records V1–V4 as successful and Hibernate validate passed")
+    @DisplayName("context boots: Flyway records V1–V5 as successful and Hibernate validate passed")
     void contextBootsWithMigratedSchema() {
         // Reaching this point proves the context started, which means Flyway
         // migrated first and ddl-auto=validate accepted the schema. Verify the
@@ -68,7 +68,7 @@ class ProductRepositoryIntegrationTest {
         List<Map<String, Object>> history = jdbcTemplate.queryForList(
                 "SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank");
 
-        assertThat(history).hasSize(4);
+        assertThat(history).hasSize(5);
         assertThat(history.get(0))
                 .containsEntry("version", "1")
                 .containsEntry("description", "create product table")
@@ -84,6 +84,10 @@ class ProductRepositoryIntegrationTest {
         assertThat(history.get(3))
                 .containsEntry("version", "4")
                 .containsEntry("description", "add orders and order lines")
+                .containsEntry("success", true);
+        assertThat(history.get(4))
+                .containsEntry("version", "5")
+                .containsEntry("description", "create payment table")
                 .containsEntry("success", true);
     }
 
