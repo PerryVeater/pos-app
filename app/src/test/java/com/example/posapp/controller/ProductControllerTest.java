@@ -1,5 +1,6 @@
 package com.example.posapp.controller;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -52,8 +53,8 @@ class ProductControllerTest {
     @DisplayName("GET /products returns all products as a JSON array")
     void getProductsReturnsAllProducts() throws Exception {
         when(productService.getAllProducts()).thenReturn(List.of(
-                new Product("Cola", 2.50),
-                new Product("Fries", 4.25)));
+                new Product("Cola", new BigDecimal("2.50")),
+                new Product("Fries", new BigDecimal("4.25"))));
 
         mockMvc.perform(get("/products"))
                 .andExpect(status().isOk())
@@ -68,7 +69,7 @@ class ProductControllerTest {
     @Test
     @DisplayName("GET /products/{id} returns the product when it exists")
     void getProductReturnsProduct() throws Exception {
-        when(productService.getProductById(1L)).thenReturn(Optional.of(new Product("Cola", 2.50)));
+        when(productService.getProductById(1L)).thenReturn(Optional.of(new Product("Cola", new BigDecimal("2.50"))));
 
         mockMvc.perform(get("/products/1"))
                 .andExpect(status().isOk())
@@ -90,7 +91,7 @@ class ProductControllerTest {
     @Test
     @DisplayName("POST /products with a valid product returns the saved product")
     void postProductReturnsSavedProduct() throws Exception {
-        when(productService.createProduct(any(Product.class))).thenReturn(new Product("Cola", 2.50));
+        when(productService.createProduct(any(Product.class))).thenReturn(new Product("Cola", new BigDecimal("2.50")));
 
         mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -121,7 +122,7 @@ class ProductControllerTest {
     @DisplayName("PUT /products/{id} returns the updated product")
     void putProductReturnsUpdatedProduct() throws Exception {
         when(productService.updateProduct(eq(1L), any(Product.class)))
-                .thenReturn(new Product("Cola Zero", 3.00));
+                .thenReturn(new Product("Cola Zero", new BigDecimal("3.00")));
 
         mockMvc.perform(put("/products/1")
                         .contentType(MediaType.APPLICATION_JSON)

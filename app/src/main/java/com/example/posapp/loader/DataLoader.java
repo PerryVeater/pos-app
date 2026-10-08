@@ -1,5 +1,7 @@
 package com.example.posapp.loader;
 
+import java.math.BigDecimal;
+
 import com.example.posapp.entity.Product;
 import com.example.posapp.repository.ProductRepository;
 import org.springframework.boot.CommandLineRunner;
@@ -42,7 +44,7 @@ public class DataLoader implements CommandLineRunner {
     @Override
     public void run(String... args) throws Exception {
         // Save a test product
-        Product p = new Product("Test Product", 19.99);
+        Product p = new Product("Test Product", new BigDecimal("19.99"));
         productRepository.save(p);
 
         // Fetch all products

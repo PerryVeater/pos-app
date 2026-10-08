@@ -1,5 +1,6 @@
 package com.example.posapp.service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -38,25 +39,33 @@ class ProductServiceTest {
     @InjectMocks
     private ProductService productService;
 
+    /**
+     * Build a product from a decimal string so test money values use the
+     * exact {@code BigDecimal} construction required for monetary data.
+     */
+    private static Product product(String name, String price) {
+        return new Product(name, new BigDecimal(price));
+    }
+
     // --- createProduct ---
 
     @Test
     @DisplayName("createProduct: valid product is saved and returned")
     void createProductValidProductIsSaved() {
-        Product input = new Product("Cola", 2.50);
+        Product input = product("Cola", "2.50");
         when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Product saved = productService.createProduct(input);
 
         assertThat(saved.getName()).isEqualTo("Cola");
-        assertThat(saved.getPrice()).isEqualTo(2.50);
+        assertThat(saved.getPrice()).isEqualByComparingTo("2.50");
         verify(productRepo).save(input);
     }
 
     @Test
     @DisplayName("createProduct: zero price is accepted (only negative prices are rejected)")
     void createProductZeroPriceIsAccepted() {
-        Product input = new Product("Tap water", 0.0);
+        Product input = product("Tap water", "0.00");
         when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
         assertThat(productService.createProduct(input).getPrice()).isZero();
@@ -65,7 +74,7 @@ class ProductServiceTest {
     @Test
     @DisplayName("createProduct: negative price is rejected and nothing is saved")
     void createProductNegativePriceIsRejected() {
-        Product input = new Product("Broken", -1.0);
+        Product input = product("Broken", "-1.00");
 
         assertThatThrownBy(() -> productService.createProduct(input))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -74,12 +83,36 @@ class ProductServiceTest {
         verify(productRepo, never()).save(any(Product.class));
     }
 
+    @Test
+    @DisplayName("createProduct: null price is rejected")
+    void createProductNullPriceIsRejected() {
+        Product input = new Product("No price", null);
+
+        assertThatThrownBy(() -> productService.createProduct(input))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("provided");
+
+        verify(productRepo, never()).save(any(Product.class));
+    }
+
+    @Test
+    @DisplayName("createProduct: price precision is preserved (no rounding or scale changes)")
+    void createProductPreservesPricePrecision() {
+        Product input = product("Espresso", "3.99");
+        when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Product saved = productService.createProduct(input);
+
+        assertThat(saved.getPrice()).isEqualByComparingTo("3.99");
+        assertThat(saved.getPrice()).hasScaleOf(2);
+    }
+
     // --- getProductById ---
 
     @Test
     @DisplayName("getProductById: returns the product when it exists")
     void getProductByIdReturnsExistingProduct() {
-        Product existing = new Product("Cola", 2.50);
+        Product existing = product("Cola", "2.50");
         when(productRepo.findById(1L)).thenReturn(Optional.of(existing));
 
         assertThat(productService.getProductById(1L)).contains(existing);
@@ -105,15 +138,15 @@ class ProductServiceTest {
     @Test
     @DisplayName("updateProduct: applies new name and price to the existing product")
     void updateProductAppliesChanges() {
-        Product existing = new Product("Cola", 2.50);
-        Product changes = new Product("Cola Zero", 3.00);
+        Product existing = product("Cola", "2.50");
+        Product changes = product("Cola Zero", "3.00");
         when(productRepo.findById(1L)).thenReturn(Optional.of(existing));
         when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Product updated = productService.updateProduct(1L, changes);
 
         assertThat(updated.getName()).isEqualTo("Cola Zero");
-        assertThat(updated.getPrice()).isEqualTo(3.00);
+        assertThat(updated.getPrice()).isEqualByComparingTo("3.00");
         verify(productRepo).save(existing);
     }
 
@@ -122,7 +155,7 @@ class ProductServiceTest {
     void updateProductThrowsProductNotFoundForMissingProduct() {
         when(productRepo.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> productService.updateProduct(99L, new Product("X", 1.0)))
+        assertThatThrownBy(() -> productService.updateProduct(99L, product("X", "1.00")))
                 .isInstanceOf(ProductNotFoundException.class)
                 .hasMessageContaining("not found");
     }
@@ -130,7 +163,7 @@ class ProductServiceTest {
     @Test
     @DisplayName("updateProduct: negative price is rejected and nothing is saved")
     void updateProductRejectsNegativePrice() {
-        Product changes = new Product("Cola", -5.0);
+        Product changes = product("Cola", "-5.00");
 
         assertThatThrownBy(() -> productService.updateProduct(1L, changes))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -153,8 +186,8 @@ class ProductServiceTest {
     @DisplayName("getAllProducts: returns every product in the repository")
     void getAllProductsReturnsAllProducts() {
         when(productRepo.findAll()).thenReturn(List.of(
-                new Product("Cola", 2.50),
-                new Product("Fries", 4.25)));
+                product("Cola", "2.50"),
+                product("Fries", "4.25")));
 
         List<Product> products = productService.getAllProducts();
 

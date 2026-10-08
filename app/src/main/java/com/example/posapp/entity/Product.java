@@ -1,5 +1,8 @@
 package com.example.posapp.entity;
 
+import java.math.BigDecimal;
+
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -28,7 +31,14 @@ public class Product {
     private Long id;
 
     private String name;
-    private double price;
+
+    /**
+     * Monetary amount stored as an exact numeric(10,2) column: precision 10
+     * allows prices up to 99,999,999.99 and scale 2 pins the value to cents.
+     * Defaults to zero so a request that omits the price behaves as before.
+     */
+    @Column(precision = 10, scale = 2)
+    private BigDecimal price = BigDecimal.ZERO;
 
     /**
      * Default constructor for Product.
@@ -40,7 +50,7 @@ public class Product {
      * @param name the name of the product
      * @param price the price of the product
      */
-    public Product(String name, double price) {
+    public Product(String name, BigDecimal price) {
         this.name = name;
         this.price = price;
     }
@@ -67,13 +77,13 @@ public class Product {
      * Get the price of the product.
      * @return the price of the product
      */
-    public double getPrice() { return price; }
+    public BigDecimal getPrice() { return price; }
 
     /**
      * Set the price of the product.
      * @param price the price of the product
      */
-    public void setPrice(double price) { this.price = price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
 
     /**
      * Return a string representation of the product.

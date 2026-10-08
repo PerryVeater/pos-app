@@ -1,5 +1,6 @@
 package com.example.posapp.service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
@@ -41,11 +42,11 @@ public class ProductService {
 
    /**
      * Create a new {@link Product}.
-     * Validates that the price is non-negative before saving.
+     * Validates that the price is present and non-negative before saving.
      *
      * @param product the Product to create
      * @return the saved Product
-     * @throws IllegalArgumentException if the product price is negative
+     * @throws IllegalArgumentException if the product price is missing or negative
      */
     public Product createProduct(Product product) {
         validatePrice(product.getPrice());
@@ -54,13 +55,13 @@ public class ProductService {
 
     /**
      * Update an existing {@link Product}.
-     * Validates that the price is non-negative and that the {@link Product}
-     * exists before updating.
+     * Validates that the price is present and non-negative and that the
+     * {@link Product} exists before updating.
      *
      * @param id the ID of the {@link Product} to update
      * @param updatedProduct the updated {@link Product} data
      * @return the updated {@link Product}
-     * @throws IllegalArgumentException if the product price is negative
+     * @throws IllegalArgumentException if the product price is missing or negative
      * @throws ProductNotFoundException if the {@link Product} does not exist
      */
     public Product updateProduct(Long id, Product updatedProduct) {
@@ -109,12 +110,15 @@ public class ProductService {
     }
 
     /**
-     * Reject negative prices for any write operation.
+     * Reject missing or negative prices for any write operation.
      * @param price the price to validate
-     * @throws IllegalArgumentException if the price is negative
+     * @throws IllegalArgumentException if the price is missing or negative
      */
-    private static void validatePrice(double price) {
-        if (price < 0) {
+    private static void validatePrice(BigDecimal price) {
+        if (price == null) {
+            throw new IllegalArgumentException("Price must be provided");
+        }
+        if (price.signum() < 0) {
             throw new IllegalArgumentException("Price cannot be negative");
         }
     }
