@@ -1,5 +1,6 @@
 package com.example.posapp.entity;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -124,6 +125,22 @@ public class Order {
     public void addLine(OrderLine line) {
         line.setOrder(this);
         lines.add(line);
+    }
+
+    /**
+     * Calculate the total amount for this order by summing
+     * {@code quantity × unitPrice} across all line items.
+     * <p> This is a computed, transient value — it is not persisted.
+     * Returns {@link BigDecimal#ZERO} when the order has no lines.
+     * </p>
+     *
+     * @return the order total as a {@link BigDecimal}
+     */
+    public BigDecimal getTotal() {
+        BigDecimal zero = BigDecimal.ZERO.setScale(2);
+        return lines.stream()
+                .map(line -> line.getUnitPrice().multiply(BigDecimal.valueOf(line.getQuantity())))
+                .reduce(zero, BigDecimal::add);
     }
 
     /**

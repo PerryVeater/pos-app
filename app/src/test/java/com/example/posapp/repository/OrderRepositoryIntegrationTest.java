@@ -339,4 +339,33 @@ class OrderRepositoryIntegrationTest {
         orderRepository.deleteById(order.getId());
         productRepository.deleteById(cola.getId());
     }
+
+    @Test
+    @DisplayName("Order.getTotal: computed total survives save and reload against real PostgreSQL")
+    void orderTotalSurvivesSaveAndReload() {
+        Product cola = productRepository.save(
+                new Product("Total Cola", "INT-ORD-TOTAL-1", new BigDecimal("2.50"), true));
+        Product fries = productRepository.save(
+                new Product("Total Fries", "INT-ORD-TOTAL-2", new BigDecimal("4.00"), true));
+
+        // Create order with two lines: 3×2.50=7.50 + 2×4.00=8.00 = 15.50
+        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        order.addLine(new OrderLine(cola, 3, new BigDecimal("2.50")));
+        order.addLine(new OrderLine(fries, 2, new BigDecimal("4.00")));
+        Order saved = orderRepository.save(order);
+
+        // Verify total before reload
+        assertThat(saved.getTotal()).isEqualByComparingTo("15.50");
+        assertThat(saved.getTotal()).hasScaleOf(2);
+
+        // Reload from database and verify total is still correct
+        Order reloaded = orderRepository.findById(saved.getId()).orElseThrow();
+        assertThat(reloaded.getTotal()).isEqualByComparingTo("15.50");
+        assertThat(reloaded.getLines()).hasSize(2);
+
+        // Cleanup
+        orderRepository.deleteById(saved.getId());
+        productRepository.deleteById(cola.getId());
+        productRepository.deleteById(fries.getId());
+    }
 }
