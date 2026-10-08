@@ -4,9 +4,12 @@ import java.math.BigDecimal;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 
 /**
  * Entity class representing a product in the Point-of-Sale (POS) system.
@@ -22,6 +25,7 @@ import jakarta.persistence.Id;
  *   <li>{@code sku} - Stable, caller-supplied identifier used by POS systems.</li>
  *   <li>{@code price} - Price of the product.</li>
  *   <li>{@code active} - Whether the product is currently available for sale.</li>
+ *   <li>{@code category} - Optional category the product belongs to.</li>
  * </ul>
  * </p>
  */
@@ -56,6 +60,17 @@ public class Product {
      */
     @Column(nullable = false)
     private boolean active = true;
+
+    /**
+     * Category this product belongs to, or {@code null} for an uncategorized
+     * product. Loaded eagerly (the {@code @ManyToOne} default) so the category
+     * is available when mapping API responses. The join column and constraint
+     * names match the {@code fk_product_category} foreign key created by the
+     * Flyway V3 migration.
+     */
+    @ManyToOne
+    @JoinColumn(name = "category_id", foreignKey = @ForeignKey(name = "fk_product_category"))
+    private Category category;
 
     /**
      * Default constructor for Product.
@@ -131,12 +146,25 @@ public class Product {
     public void setActive(boolean active) { this.active = active; }
 
     /**
+     * Get the category of the product.
+     * @return the category of the product, or {@code null} if uncategorized
+     */
+    public Category getCategory() { return category; }
+
+    /**
+     * Set the category of the product.
+     * @param category the category of the product, or {@code null} for none
+     */
+    public void setCategory(Category category) { this.category = category; }
+
+    /**
      * Return a string representation of the product.
      * @return a string representation of the product
      */
     @Override
     public String toString() {
         return "Product{id=" + id + ", name='" + name + "', sku='" + sku
-                + "', price=" + price + ", active=" + active + "}";
+                + "', price=" + price + ", active=" + active
+                + ", category=" + (category == null ? "none" : category.getName()) + "}";
     }
 }

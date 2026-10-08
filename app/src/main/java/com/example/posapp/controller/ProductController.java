@@ -83,7 +83,7 @@ public class ProductController {
      */
     @PostMapping
     public ProductResponse addProduct(@Valid @RequestBody ProductRequest request) {
-        return ProductResponse.from(productService.createProduct(request.toEntity()));
+        return ProductResponse.from(productService.createProduct(request.toEntity(), request.categoryId()));
     }
 
     /**
@@ -94,7 +94,7 @@ public class ProductController {
      */
     @PutMapping("/{id}")
     public ProductResponse updateProduct(@PathVariable Long id, @Valid @RequestBody ProductRequest request) {
-        return ProductResponse.from(productService.updateProduct(id, request.toEntity()));
+        return ProductResponse.from(productService.updateProduct(id, request.toEntity(), request.categoryId()));
     }
 
     /**

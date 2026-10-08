@@ -6,8 +6,10 @@ import java.util.Optional;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -27,6 +29,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.example.posapp.entity.Category;
 import com.example.posapp.entity.Product;
 import com.example.posapp.exception.ProductNotFoundException;
 import com.example.posapp.service.ProductService;
@@ -36,9 +39,9 @@ import com.example.posapp.service.ProductService;
  * <p>
  * The {@link ProductService} is replaced with a Mockito mock, so these tests
  * verify the HTTP contract only: routing, status codes, the JSON
- * representation of {@link Product} (including {@code sku} and
- * {@code active}), and the RFC 9457 problem-details responses returned for
- * client errors.
+ * representation of {@link Product} (including {@code sku}, {@code active},
+ * and the category fields), and the RFC 9457 problem-details responses
+ * returned for client errors.
  * </p>
  */
 @WebMvcTest(ProductController.class)
@@ -55,8 +58,10 @@ class ProductControllerTest {
     @Test
     @DisplayName("GET /products returns all products as a JSON array")
     void getProductsReturnsAllProducts() throws Exception {
+        Product cola = new Product("Cola", "COLA-001", new BigDecimal("2.50"), true);
+        cola.setCategory(new Category("Beverages"));
         when(productService.getAllProducts()).thenReturn(List.of(
-                new Product("Cola", "COLA-001", new BigDecimal("2.50"), true),
+                cola,
                 new Product("Fries", "FRIES-001", new BigDecimal("4.25"), false)));
 
         mockMvc.perform(get("/products"))
@@ -66,24 +71,28 @@ class ProductControllerTest {
                 .andExpect(jsonPath("$[0].name").value("Cola"))
                 .andExpect(jsonPath("$[0].sku").value("COLA-001"))
                 .andExpect(jsonPath("$[0].active").value(true))
+                .andExpect(jsonPath("$[0].categoryName").value("Beverages"))
                 .andExpect(jsonPath("$[1].price").value(4.25))
-                .andExpect(jsonPath("$[1].active").value(false));
+                .andExpect(jsonPath("$[1].active").value(false))
+                .andExpect(jsonPath("$[1].categoryName").value(nullValue()));
     }
 
     // --- GET /products/{id} ---
 
     @Test
-    @DisplayName("GET /products/{id} returns the product when it exists")
+    @DisplayName("GET /products/{id} returns the product (with its category) when it exists")
     void getProductReturnsProduct() throws Exception {
-        when(productService.getProductById(1L))
-                .thenReturn(Optional.of(new Product("Cola", "COLA-001", new BigDecimal("2.50"), true)));
+        Product cola = new Product("Cola", "COLA-001", new BigDecimal("2.50"), true);
+        cola.setCategory(new Category("Beverages"));
+        when(productService.getProductById(1L)).thenReturn(Optional.of(cola));
 
         mockMvc.perform(get("/products/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Cola"))
                 .andExpect(jsonPath("$.sku").value("COLA-001"))
                 .andExpect(jsonPath("$.price").value(2.50))
-                .andExpect(jsonPath("$.active").value(true));
+                .andExpect(jsonPath("$.active").value(true))
+                .andExpect(jsonPath("$.categoryName").value("Beverages"));
     }
 
     @Test
@@ -98,19 +107,23 @@ class ProductControllerTest {
     // --- POST /products ---
 
     @Test
-    @DisplayName("POST /products with a valid product (including a valid SKU) returns the saved product")
+    @DisplayName("POST /products with a valid product (including a category reference) returns the saved product")
     void postProductReturnsSavedProduct() throws Exception {
-        when(productService.createProduct(any(Product.class)))
-                .thenReturn(new Product("Cola", "COLA-001", new BigDecimal("2.50"), true));
+        Product cola = new Product("Cola", "COLA-001", new BigDecimal("2.50"), true);
+        cola.setCategory(new Category("Beverages"));
+        when(productService.createProduct(any(Product.class), any())).thenReturn(cola);
 
         mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Cola\",\"sku\":\"COLA-001\",\"price\":2.50}"))
+                        .content("{\"name\":\"Cola\",\"sku\":\"COLA-001\",\"price\":2.50,\"categoryId\":3}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Cola"))
                 .andExpect(jsonPath("$.sku").value("COLA-001"))
                 .andExpect(jsonPath("$.price").value(2.50))
-                .andExpect(jsonPath("$.active").value(true));
+                .andExpect(jsonPath("$.active").value(true))
+                .andExpect(jsonPath("$.categoryName").value("Beverages"));
+
+        verify(productService).createProduct(any(Product.class), eq(3L));
     }
 
     @Test
@@ -188,9 +201,36 @@ class ProductControllerTest {
     }
 
     @Test
+    @DisplayName("POST /products with a negative category ID returns 400 Bad Request")
+    void postNegativeCategoryIdReturns400() throws Exception {
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Cola\",\"sku\":\"COLA-001\",\"price\":2.50,\"categoryId\":-3}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Validation failed"))
+                .andExpect(jsonPath("$.detail").value(containsString("categoryId")));
+    }
+
+    @Test
+    @DisplayName("POST /products with a nonexistent category returns 400 Bad Request")
+    void postNonexistentCategoryReturns400() throws Exception {
+        when(productService.createProduct(any(Product.class), any()))
+                .thenThrow(new IllegalArgumentException("Category not found: 99"));
+
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Cola\",\"sku\":\"COLA-001\",\"price\":2.50,\"categoryId\":99}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Invalid request"))
+                .andExpect(jsonPath("$.detail").value(containsString("Category not found")));
+    }
+
+    @Test
     @DisplayName("POST /products without active defaults the new product to active=true")
     void postOmittedActiveDefaultsToTrue() throws Exception {
-        when(productService.createProduct(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(productService.createProduct(any(Product.class), any())).thenAnswer(inv -> inv.getArgument(0));
 
         mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -198,13 +238,16 @@ class ProductControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Cola"))
                 .andExpect(jsonPath("$.sku").value("COLA-001"))
-                .andExpect(jsonPath("$.active").value(true));
+                .andExpect(jsonPath("$.active").value(true))
+                .andExpect(jsonPath("$.categoryName").value(nullValue()));
+
+        verify(productService).createProduct(any(Product.class), isNull());
     }
 
     @Test
     @DisplayName("POST /products with an explicitly inactive product is accepted")
     void postExplicitInactiveProductIsAccepted() throws Exception {
-        when(productService.createProduct(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(productService.createProduct(any(Product.class), any())).thenAnswer(inv -> inv.getArgument(0));
 
         mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -218,7 +261,7 @@ class ProductControllerTest {
     @Test
     @DisplayName("POST /products with a duplicate SKU returns 400 Bad Request")
     void postDuplicateSkuReturns400() throws Exception {
-        when(productService.createProduct(any(Product.class)))
+        when(productService.createProduct(any(Product.class), any()))
                 .thenThrow(new IllegalArgumentException("SKU already exists: COLA-001"));
 
         mockMvc.perform(post("/products")
@@ -233,7 +276,7 @@ class ProductControllerTest {
     @Test
     @DisplayName("POST /products rejected by the database unique constraint returns 400 Bad Request")
     void postDuplicateSkuRejectedByDatabaseReturns400() throws Exception {
-        when(productService.createProduct(any(Product.class)))
+        when(productService.createProduct(any(Product.class), any()))
                 .thenThrow(new DataIntegrityViolationException(
                         "duplicate key value violates unique constraint \"uk_product_sku\""));
 
@@ -248,7 +291,7 @@ class ProductControllerTest {
     @Test
     @DisplayName("POST /products with a zero price returns the saved product")
     void postZeroPriceReturnsSavedProduct() throws Exception {
-        when(productService.createProduct(any(Product.class)))
+        when(productService.createProduct(any(Product.class), any()))
                 .thenReturn(new Product("Tap water", "WATER-001", new BigDecimal("0.00"), true));
 
         mockMvc.perform(post("/products")
@@ -262,19 +305,23 @@ class ProductControllerTest {
     // --- PUT /products/{id} ---
 
     @Test
-    @DisplayName("PUT /products/{id} returns the updated product")
+    @DisplayName("PUT /products/{id} returns the updated product (with its category)")
     void putProductReturnsUpdatedProduct() throws Exception {
-        when(productService.updateProduct(eq(1L), any(Product.class)))
-                .thenReturn(new Product("Cola Zero", "COLA-001", new BigDecimal("3.00"), false));
+        Product colaZero = new Product("Cola Zero", "COLA-001", new BigDecimal("3.00"), false);
+        colaZero.setCategory(new Category("Beverages"));
+        when(productService.updateProduct(eq(1L), any(Product.class), any())).thenReturn(colaZero);
 
         mockMvc.perform(put("/products/1")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Cola Zero\",\"sku\":\"COLA-001\",\"price\":3.00,\"active\":false}"))
+                        .content("{\"name\":\"Cola Zero\",\"sku\":\"COLA-001\",\"price\":3.00,\"active\":false,\"categoryId\":3}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Cola Zero"))
                 .andExpect(jsonPath("$.sku").value("COLA-001"))
                 .andExpect(jsonPath("$.price").value(3.00))
-                .andExpect(jsonPath("$.active").value(false));
+                .andExpect(jsonPath("$.active").value(false))
+                .andExpect(jsonPath("$.categoryName").value("Beverages"));
+
+        verify(productService).updateProduct(eq(1L), any(Product.class), eq(3L));
     }
 
     @Test
@@ -292,7 +339,7 @@ class ProductControllerTest {
     @Test
     @DisplayName("PUT /products/{id} returns 404 when the product does not exist")
     void putMissingProductReturns404() throws Exception {
-        when(productService.updateProduct(eq(99L), any(Product.class)))
+        when(productService.updateProduct(eq(99L), any(Product.class), any()))
                 .thenThrow(new ProductNotFoundException(99L));
 
         mockMvc.perform(put("/products/99")

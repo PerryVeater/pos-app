@@ -18,16 +18,19 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.example.posapp.entity.Category;
 import com.example.posapp.entity.Product;
 import com.example.posapp.exception.ProductNotFoundException;
+import com.example.posapp.repository.CategoryRepository;
 import com.example.posapp.repository.ProductRepository;
 
 /**
  * Unit tests for the {@link ProductService} business rules.
  * <p>
- * The repository is mocked, so these tests exercise the service layer in
- * isolation: validation rules (price, SKU, duplicate SKUs) and delegation to
- * the repository. No Spring context or database is required.
+ * The repositories are mocked, so these tests exercise the service layer in
+ * isolation: validation rules (price, SKU, duplicate SKUs, category
+ * references) and delegation to the repositories. No Spring context or
+ * database is required.
  * </p>
  */
 @ExtendWith(MockitoExtension.class)
@@ -36,12 +39,16 @@ class ProductServiceTest {
     @Mock
     private ProductRepository productRepo;
 
+    @Mock
+    private CategoryRepository categoryRepo;
+
     @InjectMocks
     private ProductService productService;
 
     /**
-     * Build an active product from a decimal string so test money values use
-     * the exact {@code BigDecimal} construction required for monetary data.
+     * Build an active, uncategorized product from a decimal string so test
+     * money values use the exact {@code BigDecimal} construction required
+     * for monetary data.
      */
     private static Product product(String name, String sku, String price) {
         return new Product(name, sku, new BigDecimal(price), true);
@@ -56,7 +63,7 @@ class ProductServiceTest {
         when(productRepo.existsBySku("COLA-001")).thenReturn(false);
         when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Product saved = productService.createProduct(input);
+        Product saved = productService.createProduct(input, null);
 
         assertThat(saved.getName()).isEqualTo("Cola");
         assertThat(saved.getSku()).isEqualTo("COLA-001");
@@ -69,9 +76,10 @@ class ProductServiceTest {
     @DisplayName("createProduct: zero price is accepted (only negative prices are rejected)")
     void createProductZeroPriceIsAccepted() {
         Product input = product("Tap water", "WATER-001", "0.00");
+        when(productRepo.existsBySku("WATER-001")).thenReturn(false);
         when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        assertThat(productService.createProduct(input).getPrice()).isZero();
+        assertThat(productService.createProduct(input, null).getPrice()).isZero();
     }
 
     @Test
@@ -79,7 +87,7 @@ class ProductServiceTest {
     void createProductNegativePriceIsRejected() {
         Product input = product("Broken", "BROKEN-001", "-1.00");
 
-        assertThatThrownBy(() -> productService.createProduct(input))
+        assertThatThrownBy(() -> productService.createProduct(input, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("negative");
 
@@ -91,7 +99,7 @@ class ProductServiceTest {
     void createProductNullPriceIsRejected() {
         Product input = new Product("No price", "NOPRICE-001", null, true);
 
-        assertThatThrownBy(() -> productService.createProduct(input))
+        assertThatThrownBy(() -> productService.createProduct(input, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("provided");
 
@@ -102,9 +110,10 @@ class ProductServiceTest {
     @DisplayName("createProduct: price precision is preserved (no rounding or scale changes)")
     void createProductPreservesPricePrecision() {
         Product input = product("Espresso", "ESPRESSO-001", "3.99");
+        when(productRepo.existsBySku("ESPRESSO-001")).thenReturn(false);
         when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Product saved = productService.createProduct(input);
+        Product saved = productService.createProduct(input, null);
 
         assertThat(saved.getPrice()).isEqualByComparingTo("3.99");
         assertThat(saved.getPrice()).hasScaleOf(2);
@@ -117,7 +126,7 @@ class ProductServiceTest {
         when(productRepo.existsBySku("FRIES-002")).thenReturn(false);
         when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Product saved = productService.createProduct(input);
+        Product saved = productService.createProduct(input, null);
 
         assertThat(saved.isActive()).isFalse();
         verify(productRepo).save(input);
@@ -129,7 +138,7 @@ class ProductServiceTest {
         Product input = product("Cola twin", "COLA-001", "2.50");
         when(productRepo.existsBySku("COLA-001")).thenReturn(true);
 
-        assertThatThrownBy(() -> productService.createProduct(input))
+        assertThatThrownBy(() -> productService.createProduct(input, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SKU already exists");
 
@@ -141,7 +150,7 @@ class ProductServiceTest {
     void createProductBlankSkuIsRejected() {
         Product input = product("No SKU", "   ", "2.50");
 
-        assertThatThrownBy(() -> productService.createProduct(input))
+        assertThatThrownBy(() -> productService.createProduct(input, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SKU must be provided");
 
@@ -153,7 +162,7 @@ class ProductServiceTest {
     void createProductNullSkuIsRejected() {
         Product input = new Product("No SKU", null, new BigDecimal("2.50"), true);
 
-        assertThatThrownBy(() -> productService.createProduct(input))
+        assertThatThrownBy(() -> productService.createProduct(input, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SKU must be provided");
 
@@ -165,11 +174,55 @@ class ProductServiceTest {
     void createProductTooLongSkuIsRejected() {
         Product input = product("Long SKU", "S".repeat(65), "2.50");
 
-        assertThatThrownBy(() -> productService.createProduct(input))
+        assertThatThrownBy(() -> productService.createProduct(input, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("at most 64");
 
         verify(productRepo, never()).save(any(Product.class));
+    }
+
+    // --- category resolution on create ---
+
+    @Test
+    @DisplayName("createProduct: assigns the referenced category when it exists")
+    void createProductAssignsExistingCategory() {
+        Product input = product("Cola", "COLA-001", "2.50");
+        Category beverages = new Category("Beverages");
+        when(productRepo.existsBySku("COLA-001")).thenReturn(false);
+        when(categoryRepo.findById(5L)).thenReturn(Optional.of(beverages));
+        when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Product saved = productService.createProduct(input, 5L);
+
+        assertThat(saved.getCategory()).isSameAs(beverages);
+        verify(productRepo).save(input);
+    }
+
+    @Test
+    @DisplayName("createProduct: nonexistent category is rejected and nothing is saved")
+    void createProductRejectsMissingCategory() {
+        Product input = product("Cola", "COLA-001", "2.50");
+        when(productRepo.existsBySku("COLA-001")).thenReturn(false);
+        when(categoryRepo.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> productService.createProduct(input, 99L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Category not found");
+
+        verify(productRepo, never()).save(any(Product.class));
+    }
+
+    @Test
+    @DisplayName("createProduct: omitted category leaves the product uncategorized")
+    void createProductWithoutCategoryStaysUncategorized() {
+        Product input = product("Cola", "COLA-001", "2.50");
+        when(productRepo.existsBySku("COLA-001")).thenReturn(false);
+        when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Product saved = productService.createProduct(input, null);
+
+        assertThat(saved.getCategory()).isNull();
+        verify(categoryRepo, never()).findById(any());
     }
 
     // --- getProductById ---
@@ -209,12 +262,13 @@ class ProductServiceTest {
         when(productRepo.existsBySkuAndIdNot("COLA-002", 1L)).thenReturn(false);
         when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Product updated = productService.updateProduct(1L, changes);
+        Product updated = productService.updateProduct(1L, changes, null);
 
         assertThat(updated.getName()).isEqualTo("Cola Zero");
         assertThat(updated.getSku()).isEqualTo("COLA-002");
         assertThat(updated.getPrice()).isEqualByComparingTo("3.00");
         assertThat(updated.isActive()).isFalse();
+        assertThat(updated.getCategory()).isNull();
         verify(productRepo).save(existing);
     }
 
@@ -227,7 +281,7 @@ class ProductServiceTest {
         when(productRepo.existsBySkuAndIdNot("COLA-001", 1L)).thenReturn(false);
         when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Product updated = productService.updateProduct(1L, changes);
+        Product updated = productService.updateProduct(1L, changes, null);
 
         assertThat(updated.getSku()).isEqualTo("COLA-001");
         verify(productRepo).save(existing);
@@ -241,7 +295,7 @@ class ProductServiceTest {
         when(productRepo.findById(1L)).thenReturn(Optional.of(existing));
         when(productRepo.existsBySkuAndIdNot("FRIES-001", 1L)).thenReturn(true);
 
-        assertThatThrownBy(() -> productService.updateProduct(1L, changes))
+        assertThatThrownBy(() -> productService.updateProduct(1L, changes, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("SKU already exists");
 
@@ -253,7 +307,7 @@ class ProductServiceTest {
     void updateProductThrowsProductNotFoundForMissingProduct() {
         when(productRepo.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> productService.updateProduct(99L, product("X", "X-001", "1.00")))
+        assertThatThrownBy(() -> productService.updateProduct(99L, product("X", "X-001", "1.00"), null))
                 .isInstanceOf(ProductNotFoundException.class)
                 .hasMessageContaining("not found");
     }
@@ -263,11 +317,62 @@ class ProductServiceTest {
     void updateProductRejectsNegativePrice() {
         Product changes = product("Cola", "COLA-001", "-5.00");
 
-        assertThatThrownBy(() -> productService.updateProduct(1L, changes))
+        assertThatThrownBy(() -> productService.updateProduct(1L, changes, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("negative");
 
         verify(productRepo, never()).save(any(Product.class));
+    }
+
+    // --- category resolution on update ---
+
+    @Test
+    @DisplayName("updateProduct: assigns the referenced category when it exists")
+    void updateProductAssignsCategory() {
+        Product existing = product("Cola", "COLA-001", "2.50");
+        Product changes = product("Cola Zero", "COLA-002", "3.00");
+        Category drinks = new Category("Drinks");
+        when(productRepo.findById(1L)).thenReturn(Optional.of(existing));
+        when(productRepo.existsBySkuAndIdNot("COLA-002", 1L)).thenReturn(false);
+        when(categoryRepo.findById(7L)).thenReturn(Optional.of(drinks));
+        when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Product updated = productService.updateProduct(1L, changes, 7L);
+
+        assertThat(updated.getCategory()).isSameAs(drinks);
+        verify(productRepo).save(existing);
+    }
+
+    @Test
+    @DisplayName("updateProduct: nonexistent category is rejected and nothing is saved")
+    void updateProductRejectsMissingCategory() {
+        Product existing = product("Cola", "COLA-001", "2.50");
+        Product changes = product("Cola Zero", "COLA-002", "3.00");
+        when(productRepo.findById(1L)).thenReturn(Optional.of(existing));
+        when(productRepo.existsBySkuAndIdNot("COLA-002", 1L)).thenReturn(false);
+        when(categoryRepo.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> productService.updateProduct(1L, changes, 99L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Category not found");
+
+        verify(productRepo, never()).save(any(Product.class));
+    }
+
+    @Test
+    @DisplayName("updateProduct: omitted category clears the existing category (full replacement)")
+    void updateProductWithoutCategoryClearsCategory() {
+        Category drinks = new Category("Drinks");
+        Product existing = product("Cola", "COLA-001", "2.50");
+        existing.setCategory(drinks);
+        Product changes = product("Cola Zero", "COLA-002", "3.00");
+        when(productRepo.findById(1L)).thenReturn(Optional.of(existing));
+        when(productRepo.existsBySkuAndIdNot("COLA-002", 1L)).thenReturn(false);
+        when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Product updated = productService.updateProduct(1L, changes, null);
+
+        assertThat(updated.getCategory()).isNull();
     }
 
     // --- deleteProduct / getAllProducts ---

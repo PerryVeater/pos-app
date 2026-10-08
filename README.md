@@ -15,14 +15,15 @@ This project demonstrates a production-style Point-of-Sale (POS) system.
 
 The database schema is managed by [Flyway](https://flywaydb.org). Versioned
 migrations live in `app/src/main/resources/db/migration`
-(`V1__create_product_table.sql`, `V2__add_product_sku_and_active.sql`) and
-are applied automatically at application startup. Each product carries a
-caller-supplied, unique `sku` (the stable identifier used by POS systems) and
-an `active` flag (products are deactivated rather than deleted). Hibernate
-runs with `ddl-auto=validate`, so it verifies the schema against the JPA
-model instead of modifying it. Databases created before Flyway was introduced
-are baselined automatically on first startup (`spring.flyway.baseline-on-migrate=true`)
-and are not recreated.
+(`V1__create_product_table.sql`, `V2__add_product_sku_and_active.sql`,
+`V3__add_product_category.sql`) and are applied automatically at application
+startup. Each product carries a caller-supplied, unique `sku` (the stable
+identifier used by POS systems), an `active` flag (products are deactivated
+rather than deleted), and an optional reference to a `category` (required,
+unique name) via `category_id`. Hibernate runs with `ddl-auto=validate`, so it
+verifies the schema against the JPA model instead of modifying it. Databases
+created before Flyway was introduced are baselined automatically on first
+startup (`spring.flyway.baseline-on-migrate=true`) and are not recreated.
 
 ## Local PostgreSQL (development)
 
