@@ -133,6 +133,39 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * Map a missing organization (either the aggregate root itself or a
+     * store's required owning organization reference) to HTTP 404 Not Found.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(OrganizationNotFoundException.class)
+    public ProblemDetail handleOrganizationNotFound(OrganizationNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "Organization not found", ex.getMessage());
+    }
+
+    /**
+     * Map a missing store to HTTP 404 Not Found.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(StoreNotFoundException.class)
+    public ProblemDetail handleStoreNotFound(StoreNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "Store not found", ex.getMessage());
+    }
+
+    /**
+     * Map an organization or store business rule violation (blank name,
+     * duplicate name, deletion blocked by attached stores) to HTTP 400 Bad
+     * Request.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(OrganizationValidationException.class)
+    public ProblemDetail handleOrganizationValidation(OrganizationValidationException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid organization", ex.getMessage());
+    }
+
+    /**
      * Map an invalid argument (e.g. a negative price) to HTTP 400 Bad Request.
      * @param ex the exception thrown by the service layer
      * @return a problem detail describing the error
