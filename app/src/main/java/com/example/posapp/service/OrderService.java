@@ -10,6 +10,7 @@ import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.Product;
+import com.example.posapp.exception.OrderValidationException;
 import com.example.posapp.repository.OrderRepository;
 import com.example.posapp.repository.ProductRepository;
 
@@ -59,13 +60,13 @@ public class OrderService {
      * @param lineInputs the line items to include; each references a product
      *        by ID and a positive quantity
      * @return the saved {@link Order} with its lines
-     * @throws IllegalArgumentException if the list is null or empty, a
+     * @throws OrderValidationException if the list is null or empty, a
      *         product does not exist, a product is inactive, or a quantity
      *         is not positive
      */
     public Order createOrder(List<OrderLineInput> lineInputs) {
         if (lineInputs == null || lineInputs.isEmpty()) {
-            throw new IllegalArgumentException("Order must have at least one line");
+            throw new OrderValidationException("Order must have at least one line");
         }
 
         Order order = new Order();
@@ -74,16 +75,16 @@ public class OrderService {
 
         for (OrderLineInput input : lineInputs) {
             Product product = productRepo.findById(input.productId())
-                    .orElseThrow(() -> new IllegalArgumentException(
+                    .orElseThrow(() -> new OrderValidationException(
                             "Product not found: " + input.productId()));
 
             if (!product.isActive()) {
-                throw new IllegalArgumentException(
+                throw new OrderValidationException(
                         "Product is not active: " + input.productId());
             }
 
             if (input.quantity() <= 0) {
-                throw new IllegalArgumentException(
+                throw new OrderValidationException(
                         "Quantity must be positive for product: " + input.productId());
             }
 

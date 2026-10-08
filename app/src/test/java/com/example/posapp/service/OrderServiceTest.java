@@ -22,6 +22,7 @@ import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.Product;
+import com.example.posapp.exception.OrderValidationException;
 import com.example.posapp.repository.OrderRepository;
 import com.example.posapp.repository.ProductRepository;
 
@@ -127,7 +128,7 @@ class OrderServiceTest {
 
         assertThatThrownBy(() -> orderService.createOrder(List.of(
                 new OrderService.OrderLineInput(99L, 1))))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("Product not found");
 
         verify(orderRepo, never()).save(any(Order.class));
@@ -141,7 +142,7 @@ class OrderServiceTest {
 
         assertThatThrownBy(() -> orderService.createOrder(List.of(
                 new OrderService.OrderLineInput(1L, 1))))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("not active");
 
         verify(orderRepo, never()).save(any(Order.class));
@@ -158,7 +159,7 @@ class OrderServiceTest {
         assertThatThrownBy(() -> orderService.createOrder(List.of(
                 new OrderService.OrderLineInput(1L, 1),
                 new OrderService.OrderLineInput(2L, 1))))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("not active");
 
         verify(orderRepo, never()).save(any(Order.class));
@@ -172,7 +173,7 @@ class OrderServiceTest {
 
         assertThatThrownBy(() -> orderService.createOrder(List.of(
                 new OrderService.OrderLineInput(1L, 0))))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("Quantity must be positive");
 
         verify(orderRepo, never()).save(any(Order.class));
@@ -186,7 +187,7 @@ class OrderServiceTest {
 
         assertThatThrownBy(() -> orderService.createOrder(List.of(
                 new OrderService.OrderLineInput(1L, -1))))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("Quantity must be positive");
 
         verify(orderRepo, never()).save(any(Order.class));
@@ -196,7 +197,7 @@ class OrderServiceTest {
     @DisplayName("createOrder: rejects empty line list and does not save")
     void createOrderRejectsEmptyLineList() {
         assertThatThrownBy(() -> orderService.createOrder(List.of()))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("at least one line");
 
         verify(orderRepo, never()).save(any(Order.class));
@@ -206,7 +207,7 @@ class OrderServiceTest {
     @DisplayName("createOrder: rejects null line list and does not save")
     void createOrderRejectsNullLineList() {
         assertThatThrownBy(() -> orderService.createOrder(null))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("at least one line");
 
         verify(orderRepo, never()).save(any(Order.class));

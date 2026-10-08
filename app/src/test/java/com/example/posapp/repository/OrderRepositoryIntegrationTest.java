@@ -24,6 +24,7 @@ import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.Product;
+import com.example.posapp.exception.OrderValidationException;
 import com.example.posapp.service.OrderService;
 
 /**
@@ -309,7 +310,7 @@ class OrderRepositoryIntegrationTest {
 
         assertThatThrownBy(() -> orderService.createOrder(List.of(
                 new OrderService.OrderLineInput(inactive.getId(), 1))))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("not active");
 
         // No order should have been created
