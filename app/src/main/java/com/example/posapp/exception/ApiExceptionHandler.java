@@ -50,6 +50,26 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * Map a missing payment to HTTP 404 Not Found.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(PaymentNotFoundException.class)
+    public ProblemDetail handlePaymentNotFound(PaymentNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "Payment not found", ex.getMessage());
+    }
+
+    /**
+     * Map a payment validation failure to HTTP 400 Bad Request.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(PaymentValidationException.class)
+    public ProblemDetail handlePaymentValidation(PaymentValidationException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid payment", ex.getMessage());
+    }
+
+    /**
      * Map an invalid argument (e.g. a negative price) to HTTP 400 Bad Request.
      * @param ex the exception thrown by the service layer
      * @return a problem detail describing the error
