@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.example.posapp.entity.Product;
+import com.example.posapp.exception.ProductNotFoundException;
 import com.example.posapp.repository.ProductRepository;
 
 /**
@@ -26,11 +27,6 @@ import com.example.posapp.repository.ProductRepository;
  * The repository is mocked, so these tests exercise the service layer in
  * isolation: validation rules and delegation to the repository. No Spring
  * context or database is required.
- * </p>
- * <p>
- * Tests assert the <em>current</em> behavior of the service. Known defects
- * are marked with "KNOWN DEFECT" in their display names; when such a defect
- * is fixed, the corresponding test must be updated deliberately.
  * </p>
  */
 @ExtendWith(MockitoExtension.class)
@@ -122,33 +118,25 @@ class ProductServiceTest {
     }
 
     @Test
-    @DisplayName("updateProduct: throws when the product does not exist")
-    void updateProductThrowsForMissingProduct() {
+    @DisplayName("updateProduct: throws ProductNotFoundException when the product does not exist")
+    void updateProductThrowsProductNotFoundForMissingProduct() {
         when(productRepo.findById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> productService.updateProduct(99L, new Product("X", 1.0)))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(ProductNotFoundException.class)
                 .hasMessageContaining("not found");
     }
 
-    /**
-     * Documents a known defect: {@link ProductService#updateProduct} does not
-     * validate the price, so a negative price is accepted and persisted even
-     * though {@code createProduct} rejects it. When the validation gap is
-     * fixed, this test must be updated to expect an exception instead.
-     */
     @Test
-    @DisplayName("KNOWN DEFECT: updateProduct accepts a negative price (update bypasses validation)")
-    void updateProductAcceptsNegativePrice() {
-        Product existing = new Product("Cola", 2.50);
+    @DisplayName("updateProduct: negative price is rejected and nothing is saved")
+    void updateProductRejectsNegativePrice() {
         Product changes = new Product("Cola", -5.0);
-        when(productRepo.findById(1L)).thenReturn(Optional.of(existing));
-        when(productRepo.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Product updated = productService.updateProduct(1L, changes);
+        assertThatThrownBy(() -> productService.updateProduct(1L, changes))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("negative");
 
-        assertThat(updated.getPrice()).isNegative();
-        verify(productRepo).save(existing);
+        verify(productRepo, never()).save(any(Product.class));
     }
 
     // --- deleteProduct / getAllProducts ---

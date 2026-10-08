@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 import com.example.posapp.entity.Product;
+import com.example.posapp.exception.ProductNotFoundException;
 import com.example.posapp.repository.ProductRepository;
 
 /**
@@ -47,29 +48,30 @@ public class ProductService {
      * @throws IllegalArgumentException if the product price is negative
      */
     public Product createProduct(Product product) {
-        if (product.getPrice() < 0) {
-            throw new IllegalArgumentException("Price cannot be negative");
-        }
+        validatePrice(product.getPrice());
         return productRepo.save(product);
     }
 
     /**
      * Update an existing {@link Product}.
-     * Validates that the {@link Product} exists before updating.
+     * Validates that the price is non-negative and that the {@link Product}
+     * exists before updating.
      *
      * @param id the ID of the {@link Product} to update
      * @param updatedProduct the updated {@link Product} data
      * @return the updated {@link Product}
-     * @throws IllegalArgumentException if the {@link Product} does not exist
+     * @throws IllegalArgumentException if the product price is negative
+     * @throws ProductNotFoundException if the {@link Product} does not exist
      */
     public Product updateProduct(Long id, Product updatedProduct) {
+        validatePrice(updatedProduct.getPrice());
         return productRepo.findById(id)
             .map(existing -> {
                 existing.setName(updatedProduct.getName());
                 existing.setPrice(updatedProduct.getPrice());
                 return productRepo.save(existing);
             })
-            .orElseThrow(() -> new IllegalArgumentException("Product not found"));
+            .orElseThrow(() -> new ProductNotFoundException(id));
     }
     
     /**
@@ -104,5 +106,16 @@ public class ProductService {
             throw new IllegalArgumentException("ID cannot be null");
         }
         return productRepo.findById(id);
+    }
+
+    /**
+     * Reject negative prices for any write operation.
+     * @param price the price to validate
+     * @throws IllegalArgumentException if the price is negative
+     */
+    private static void validatePrice(double price) {
+        if (price < 0) {
+            throw new IllegalArgumentException("Price cannot be negative");
+        }
     }
 }

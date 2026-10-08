@@ -3,7 +3,6 @@ package com.example.posapp.controller;
 import java.util.List;
 import java.util.Optional;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -17,8 +16,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import jakarta.servlet.ServletException;
-
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,16 +25,16 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.example.posapp.entity.Product;
+import com.example.posapp.exception.ProductNotFoundException;
 import com.example.posapp.service.ProductService;
 
 /**
  * Web-layer tests for {@link ProductController} using MockMvc.
  * <p>
  * The {@link ProductService} is replaced with a Mockito mock, so these tests
- * verify the HTTP contract only: routing, status codes, and the JSON
- * representation of {@link Product}. They assert the API's <em>current</em>
- * behavior; known defects are marked with "KNOWN DEFECT" in their display
- * names and must be updated deliberately once the underlying issue is fixed.
+ * verify the HTTP contract only: routing, status codes, the JSON
+ * representation of {@link Product}, and the RFC 9457 problem-details
+ * responses returned for client errors.
  * </p>
  */
 @WebMvcTest(ProductController.class)
@@ -103,25 +100,19 @@ class ProductControllerTest {
                 .andExpect(jsonPath("$.price").value(2.50));
     }
 
-    /**
-     * Documents a known defect: a rejected negative price surfaces as an
-     * unhandled {@link IllegalArgumentException} that escapes the
-     * DispatcherServlet entirely; a real servlet container turns that into
-     * HTTP 500 instead of mapping it to 400 Bad Request, because no
-     * exception handler exists yet. When global error handling is added,
-     * this test must be updated to expect 400.
-     */
     @Test
-    @DisplayName("KNOWN DEFECT: POST with a negative price is unhandled (500 in a real container, not 400)")
-    void postNegativePriceEscapesAsUnhandledException() {
+    @DisplayName("POST /products with a negative price returns 400 Bad Request")
+    void postNegativePriceReturns400() throws Exception {
         when(productService.createProduct(any(Product.class)))
                 .thenThrow(new IllegalArgumentException("Price cannot be negative"));
 
-        assertThatThrownBy(() -> mockMvc.perform(post("/products")
+        mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Broken\",\"price\":-1.0}")))
-                .isInstanceOf(ServletException.class)
-                .hasRootCauseInstanceOf(IllegalArgumentException.class);
+                        .content("{\"name\":\"Broken\",\"price\":-1.0}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Invalid request"))
+                .andExpect(jsonPath("$.detail").value("Price cannot be negative"));
     }
 
     // --- PUT /products/{id} ---
@@ -138,6 +129,34 @@ class ProductControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Cola Zero"))
                 .andExpect(jsonPath("$.price").value(3.00));
+    }
+
+    @Test
+    @DisplayName("PUT /products/{id} with a negative price returns 400 Bad Request")
+    void putNegativePriceReturns400() throws Exception {
+        when(productService.updateProduct(eq(1L), any(Product.class)))
+                .thenThrow(new IllegalArgumentException("Price cannot be negative"));
+
+        mockMvc.perform(put("/products/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Cola\",\"price\":-1.0}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid request"))
+                .andExpect(jsonPath("$.detail").value("Price cannot be negative"));
+    }
+
+    @Test
+    @DisplayName("PUT /products/{id} returns 404 when the product does not exist")
+    void putMissingProductReturns404() throws Exception {
+        when(productService.updateProduct(eq(99L), any(Product.class)))
+                .thenThrow(new ProductNotFoundException(99L));
+
+        mockMvc.perform(put("/products/99")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Ghost\",\"price\":1.0}"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Product not found"));
     }
 
     // --- DELETE /products/{id} ---
