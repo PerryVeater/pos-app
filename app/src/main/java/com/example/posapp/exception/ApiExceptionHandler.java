@@ -90,6 +90,39 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * Map a missing modifier group to HTTP 404 Not Found.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(ModifierGroupNotFoundException.class)
+    public ProblemDetail handleModifierGroupNotFound(ModifierGroupNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "Modifier group not found", ex.getMessage());
+    }
+
+    /**
+     * Map a missing modifier (or a missing group ↔ modifier assignment) to
+     * HTTP 404 Not Found.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(ModifierNotFoundException.class)
+    public ProblemDetail handleModifierNotFound(ModifierNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "Modifier not found", ex.getMessage());
+    }
+
+    /**
+     * Map a modifier / modifier group business rule violation (blank name,
+     * duplicate group name, invalid selection policy, deletion blocked by an
+     * assignment, duplicate assignment pair) to HTTP 400 Bad Request.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(ModifierValidationException.class)
+    public ProblemDetail handleModifierValidation(ModifierValidationException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid modifier", ex.getMessage());
+    }
+
+    /**
      * Map a payment validation failure to HTTP 400 Bad Request.
      * @param ex the exception thrown by the service layer
      * @return a problem detail describing the error
