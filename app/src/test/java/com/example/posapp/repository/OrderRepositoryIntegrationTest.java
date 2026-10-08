@@ -24,6 +24,7 @@ import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.Product;
+import com.example.posapp.service.OrderService;
 
 /**
  * Integration tests for the Order persistence stack against a real PostgreSQL.
@@ -58,6 +59,9 @@ class OrderRepositoryIntegrationTest {
 
     @Autowired
     private ProductRepository productRepository;
+
+    @Autowired
+    private OrderService orderService;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -295,5 +299,43 @@ class OrderRepositoryIntegrationTest {
         // Cleanup
         productRepository.deleteById(cola.getId());
         productRepository.deleteById(fries.getId());
+    }
+
+    @Test
+    @DisplayName("OrderService: rejects inactive product against real PostgreSQL")
+    void orderServiceRejectsInactiveProduct() {
+        Product inactive = productRepository.save(
+                new Product("Inactive Cola", "INT-ORD-INACTIVE", new BigDecimal("2.50"), false));
+
+        assertThatThrownBy(() -> orderService.createOrder(List.of(
+                new OrderService.OrderLineInput(inactive.getId(), 1))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("not active");
+
+        // No order should have been created
+        assertThat(jdbcTemplate.queryForList("SELECT * FROM orders")).isEmpty();
+
+        productRepository.deleteById(inactive.getId());
+    }
+
+    @Test
+    @DisplayName("OrderService: captures current product price as unitPrice against real PostgreSQL")
+    void orderServiceCapturesCurrentPrice() {
+        Product cola = productRepository.save(
+                new Product("Price Cola", "INT-ORD-PRICE", new BigDecimal("3.50"), true));
+
+        Order order = orderService.createOrder(List.of(
+                new OrderService.OrderLineInput(cola.getId(), 2)));
+
+        assertThat(order.getId()).isNotNull();
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING);
+        assertThat(order.getLines()).hasSize(1);
+        assertThat(order.getLines().get(0).getUnitPrice()).isEqualByComparingTo("3.50");
+        assertThat(order.getLines().get(0).getUnitPrice()).hasScaleOf(2);
+        assertThat(order.getLines().get(0).getQuantity()).isEqualTo(2);
+
+        // Cleanup
+        orderRepository.deleteById(order.getId());
+        productRepository.deleteById(cola.getId());
     }
 }

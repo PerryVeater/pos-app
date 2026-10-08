@@ -60,7 +60,8 @@ public class OrderService {
      *        by ID and a positive quantity
      * @return the saved {@link Order} with its lines
      * @throws IllegalArgumentException if the list is null or empty, a
-     *         product does not exist, or a quantity is not positive
+     *         product does not exist, a product is inactive, or a quantity
+     *         is not positive
      */
     public Order createOrder(List<OrderLineInput> lineInputs) {
         if (lineInputs == null || lineInputs.isEmpty()) {
@@ -75,6 +76,11 @@ public class OrderService {
             Product product = productRepo.findById(input.productId())
                     .orElseThrow(() -> new IllegalArgumentException(
                             "Product not found: " + input.productId()));
+
+            if (!product.isActive()) {
+                throw new IllegalArgumentException(
+                        "Product is not active: " + input.productId());
+            }
 
             if (input.quantity() <= 0) {
                 throw new IllegalArgumentException(

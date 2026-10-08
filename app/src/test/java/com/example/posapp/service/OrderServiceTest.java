@@ -134,6 +134,37 @@ class OrderServiceTest {
     }
 
     @Test
+    @DisplayName("createOrder: rejects inactive product and does not save")
+    void createOrderRejectsInactiveProduct() {
+        Product inactive = new Product("Legacy Fries", "LEGACY-001", new BigDecimal("5.00"), false);
+        when(productRepo.findById(1L)).thenReturn(Optional.of(inactive));
+
+        assertThatThrownBy(() -> orderService.createOrder(List.of(
+                new OrderService.OrderLineInput(1L, 1))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("not active");
+
+        verify(orderRepo, never()).save(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("createOrder: rejects inactive product even when other lines are valid (nothing saved)")
+    void createOrderRejectsInactiveProductMixedLines() {
+        Product active = product("Cola", "COLA-001", "2.50");
+        Product inactive = new Product("Legacy Fries", "LEGACY-001", new BigDecimal("5.00"), false);
+        when(productRepo.findById(1L)).thenReturn(Optional.of(active));
+        when(productRepo.findById(2L)).thenReturn(Optional.of(inactive));
+
+        assertThatThrownBy(() -> orderService.createOrder(List.of(
+                new OrderService.OrderLineInput(1L, 1),
+                new OrderService.OrderLineInput(2L, 1))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("not active");
+
+        verify(orderRepo, never()).save(any(Order.class));
+    }
+
+    @Test
     @DisplayName("createOrder: rejects zero quantity and does not save")
     void createOrderRejectsZeroQuantity() {
         Product cola = product("Cola", "COLA-001", "2.50");
