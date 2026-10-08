@@ -28,4 +28,11 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
      * @return a list of products with the given name
      */
     List<Product> findByName(String name);
+
+    /**
+     * Check whether a product with the given name exists.
+     * @param name the name of the product
+     * @return {@code true} if a product with the given name exists
+     */
+    boolean existsByName(String name);
 }

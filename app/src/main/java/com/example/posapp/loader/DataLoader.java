@@ -14,6 +14,11 @@ import org.springframework.stereotype.Component;
  * and implements {@code CommandLineRunner} to run the data loading logic when the application starts.
  * </p>
  * <p>
+ * Seeding is idempotent: the demo product is only inserted when no product with
+ * its name exists yet, so repeated application restarts never create duplicate
+ * seed rows.
+ * </p>
+ * <p>
  * Typical usage:
  * <ul>
  *   <li>Called by Spring Boot to load data into the database when the application starts.</li>
@@ -26,6 +31,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class DataLoader implements CommandLineRunner {
 
+    /**
+     * Name of the demo product. Also serves as the idempotency key: if a
+     * product with this name already exists, seeding is skipped.
+     */
+    private static final String SEED_PRODUCT_NAME = "Test Product";
+
     private final ProductRepository productRepository;
 
     /**
@@ -37,14 +48,19 @@ public class DataLoader implements CommandLineRunner {
     }
 
     /**
-     * Run the data loading logic.
+     * Run the data loading logic: insert the seed product unless a product
+     * with its name already exists.
      * @param args the command line arguments
      * @throws Exception if an error occurs
      */
     @Override
     public void run(String... args) throws Exception {
-        // Save a test product
-        Product p = new Product("Test Product", new BigDecimal("19.99"));
+        if (productRepository.existsByName(SEED_PRODUCT_NAME)) {
+            return;
+        }
+
+        // Save the seed product only on first use
+        Product p = new Product(SEED_PRODUCT_NAME, new BigDecimal("19.99"));
         productRepository.save(p);
 
         // Fetch all products
