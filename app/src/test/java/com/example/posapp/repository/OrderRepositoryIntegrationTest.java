@@ -368,4 +368,29 @@ class OrderRepositoryIntegrationTest {
         productRepository.deleteById(cola.getId());
         productRepository.deleteById(fries.getId());
     }
+
+    @Test
+    @DisplayName("OrderService.transitionStatus: PENDING → CONFIRMED is persisted and reloaded")
+    void transitionStatusIsPersistedAndReloaded() {
+        Product cola = productRepository.save(
+                new Product("Transition Cola", "INT-ORD-TRANS-1", new BigDecimal("2.50"), true));
+
+        // Create a PENDING order
+        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        order.addLine(new OrderLine(cola, 1, new BigDecimal("2.50")));
+        Order saved = orderRepository.save(order);
+        assertThat(saved.getStatus()).isEqualTo(OrderStatus.PENDING);
+
+        // Transition to CONFIRMED via the service
+        Order transitioned = orderService.transitionStatus(saved.getId(), OrderStatus.CONFIRMED);
+        assertThat(transitioned.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
+
+        // Reload from database and verify the status persisted
+        Order reloaded = orderRepository.findById(saved.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
+
+        // Cleanup
+        orderRepository.deleteById(saved.getId());
+        productRepository.deleteById(cola.getId());
+    }
 }

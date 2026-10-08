@@ -10,6 +10,7 @@ import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.Product;
+import com.example.posapp.exception.OrderNotFoundException;
 import com.example.posapp.exception.OrderValidationException;
 import com.example.posapp.repository.OrderRepository;
 import com.example.posapp.repository.ProductRepository;
@@ -108,6 +109,55 @@ public class OrderService {
             throw new IllegalArgumentException("Order id must not be null");
         }
         return orderRepo.findById(id);
+    }
+
+    /**
+     * Transition an {@link Order} to a new status.
+     * <p>
+     * Allowed transitions:
+     * <ul>
+     *   <li>{@link OrderStatus#PENDING} → {@link OrderStatus#CONFIRMED}</li>
+     *   <li>{@link OrderStatus#PENDING} → {@link OrderStatus#CANCELLED}</li>
+     *   <li>{@link OrderStatus#CONFIRMED} → {@link OrderStatus#COMPLETED}</li>
+     *   <li>{@link OrderStatus#CONFIRMED} → {@link OrderStatus#CANCELLED}</li>
+     * </ul>
+     * All other transitions are rejected with {@link OrderValidationException}.
+     * Terminal states ({@link OrderStatus#COMPLETED}, {@link OrderStatus#CANCELLED})
+     * cannot be transitioned further.
+     * </p>
+     *
+     * @param orderId the ID of the order to transition
+     * @param newStatus the target status
+     * @return the updated {@link Order}
+     * @throws OrderNotFoundException if the order does not exist
+     * @throws OrderValidationException if the transition is not allowed
+     */
+    public Order transitionStatus(Long orderId, OrderStatus newStatus) {
+        Order order = orderRepo.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException(orderId));
+
+        OrderStatus currentStatus = order.getStatus();
+        if (!isAllowedTransition(currentStatus, newStatus)) {
+            throw new OrderValidationException(
+                    "Cannot transition from " + currentStatus + " to " + newStatus);
+        }
+
+        order.setStatus(newStatus);
+        return orderRepo.save(order);
+    }
+
+    /**
+     * Check whether a status transition is allowed.
+     * @param from the current status
+     * @param to the target status
+     * @return {@code true} if the transition is allowed, {@code false} otherwise
+     */
+    private boolean isAllowedTransition(OrderStatus from, OrderStatus to) {
+        return switch (from) {
+            case PENDING -> to == OrderStatus.CONFIRMED || to == OrderStatus.CANCELLED;
+            case CONFIRMED -> to == OrderStatus.COMPLETED || to == OrderStatus.CANCELLED;
+            case COMPLETED, CANCELLED -> false;
+        };
     }
 
     /**

@@ -22,6 +22,7 @@ import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.Product;
+import com.example.posapp.exception.OrderNotFoundException;
 import com.example.posapp.exception.OrderValidationException;
 import com.example.posapp.repository.OrderRepository;
 import com.example.posapp.repository.ProductRepository;
@@ -250,5 +251,138 @@ class OrderServiceTest {
     void getOrderByIdRejectsNullId() {
         assertThatThrownBy(() -> orderService.getOrderById(null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // --- transitionStatus: allowed transitions ---
+
+    @Test
+    @DisplayName("transitionStatus: PENDING → CONFIRMED is allowed")
+    void transitionStatusPendingToConfirmed() {
+        Order order = new Order(OrderStatus.PENDING, java.time.LocalDateTime.now());
+        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Order result = orderService.transitionStatus(1L, OrderStatus.CONFIRMED);
+
+        assertThat(result.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
+        verify(orderRepo).save(order);
+    }
+
+    @Test
+    @DisplayName("transitionStatus: PENDING → CANCELLED is allowed")
+    void transitionStatusPendingToCancelled() {
+        Order order = new Order(OrderStatus.PENDING, java.time.LocalDateTime.now());
+        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Order result = orderService.transitionStatus(1L, OrderStatus.CANCELLED);
+
+        assertThat(result.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        verify(orderRepo).save(order);
+    }
+
+    @Test
+    @DisplayName("transitionStatus: CONFIRMED → COMPLETED is allowed")
+    void transitionStatusConfirmedToCompleted() {
+        Order order = new Order(OrderStatus.CONFIRMED, java.time.LocalDateTime.now());
+        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Order result = orderService.transitionStatus(1L, OrderStatus.COMPLETED);
+
+        assertThat(result.getStatus()).isEqualTo(OrderStatus.COMPLETED);
+        verify(orderRepo).save(order);
+    }
+
+    @Test
+    @DisplayName("transitionStatus: CONFIRMED → CANCELLED is allowed")
+    void transitionStatusConfirmedToCancelled() {
+        Order order = new Order(OrderStatus.CONFIRMED, java.time.LocalDateTime.now());
+        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Order result = orderService.transitionStatus(1L, OrderStatus.CANCELLED);
+
+        assertThat(result.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        verify(orderRepo).save(order);
+    }
+
+    // --- transitionStatus: rejected transitions ---
+
+    @Test
+    @DisplayName("transitionStatus: PENDING → COMPLETED is rejected")
+    void transitionStatusPendingToCompletedRejected() {
+        Order order = new Order(OrderStatus.PENDING, java.time.LocalDateTime.now());
+        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.transitionStatus(1L, OrderStatus.COMPLETED))
+                .isInstanceOf(OrderValidationException.class)
+                .hasMessageContaining("Cannot transition from PENDING to COMPLETED");
+
+        verify(orderRepo, never()).save(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("transitionStatus: PENDING → PENDING is rejected")
+    void transitionStatusPendingToPendingRejected() {
+        Order order = new Order(OrderStatus.PENDING, java.time.LocalDateTime.now());
+        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.transitionStatus(1L, OrderStatus.PENDING))
+                .isInstanceOf(OrderValidationException.class)
+                .hasMessageContaining("Cannot transition from PENDING to PENDING");
+
+        verify(orderRepo, never()).save(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("transitionStatus: CONFIRMED → PENDING is rejected")
+    void transitionStatusConfirmedToPendingRejected() {
+        Order order = new Order(OrderStatus.CONFIRMED, java.time.LocalDateTime.now());
+        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.transitionStatus(1L, OrderStatus.PENDING))
+                .isInstanceOf(OrderValidationException.class)
+                .hasMessageContaining("Cannot transition from CONFIRMED to PENDING");
+
+        verify(orderRepo, never()).save(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("transitionStatus: COMPLETED → anything is rejected")
+    void transitionStatusCompletedToAnythingRejected() {
+        Order order = new Order(OrderStatus.COMPLETED, java.time.LocalDateTime.now());
+        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.transitionStatus(1L, OrderStatus.CANCELLED))
+                .isInstanceOf(OrderValidationException.class)
+                .hasMessageContaining("Cannot transition from COMPLETED to CANCELLED");
+
+        verify(orderRepo, never()).save(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("transitionStatus: CANCELLED → anything is rejected")
+    void transitionStatusCancelledToAnythingRejected() {
+        Order order = new Order(OrderStatus.CANCELLED, java.time.LocalDateTime.now());
+        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.transitionStatus(1L, OrderStatus.PENDING))
+                .isInstanceOf(OrderValidationException.class)
+                .hasMessageContaining("Cannot transition from CANCELLED to PENDING");
+
+        verify(orderRepo, never()).save(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("transitionStatus: nonexistent order throws OrderNotFoundException")
+    void transitionStatusNonexistentOrderThrowsNotFound() {
+        when(orderRepo.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.transitionStatus(99L, OrderStatus.CONFIRMED))
+                .isInstanceOf(OrderNotFoundException.class)
+                .hasMessageContaining("Order not found: 99");
+
+        verify(orderRepo, never()).save(any(Order.class));
     }
 }
