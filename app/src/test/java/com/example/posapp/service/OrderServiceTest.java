@@ -18,6 +18,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.example.posapp.entity.DiningOption;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
@@ -68,11 +69,12 @@ class OrderServiceTest {
         when(productRepo.findById(2L)).thenReturn(Optional.of(fries));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Order saved = orderService.createOrder(List.of(
+        Order saved = orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(1L, 2),
                 new OrderService.OrderLineInput(2L, 1)));
 
         assertThat(saved.getStatus()).isEqualTo(OrderStatus.PENDING);
+        assertThat(saved.getDiningOption()).isEqualTo(DiningOption.DINE_IN);
         assertThat(saved.getCreatedAt()).isNotNull();
         assertThat(saved.getLines()).hasSize(2);
 
@@ -99,7 +101,7 @@ class OrderServiceTest {
         when(productRepo.findById(1L)).thenReturn(Optional.of(cola));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Order saved = orderService.createOrder(List.of(
+        Order saved = orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(1L, 1)));
 
         // Simulate a later price change on the product
@@ -116,7 +118,7 @@ class OrderServiceTest {
         when(productRepo.findById(1L)).thenReturn(Optional.of(cola));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Order saved = orderService.createOrder(List.of(
+        Order saved = orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(1L, 1)));
 
         assertThat(saved.getLines().get(0).getOrder()).isSameAs(saved);
@@ -127,7 +129,7 @@ class OrderServiceTest {
     void createOrderRejectsNonexistentProduct() {
         when(productRepo.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> orderService.createOrder(List.of(
+        assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(99L, 1))))
                 .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("Product not found");
@@ -141,7 +143,7 @@ class OrderServiceTest {
         Product inactive = new Product("Legacy Fries", "LEGACY-001", new BigDecimal("5.00"), false);
         when(productRepo.findById(1L)).thenReturn(Optional.of(inactive));
 
-        assertThatThrownBy(() -> orderService.createOrder(List.of(
+        assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(1L, 1))))
                 .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("not active");
@@ -157,7 +159,7 @@ class OrderServiceTest {
         when(productRepo.findById(1L)).thenReturn(Optional.of(active));
         when(productRepo.findById(2L)).thenReturn(Optional.of(inactive));
 
-        assertThatThrownBy(() -> orderService.createOrder(List.of(
+        assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(1L, 1),
                 new OrderService.OrderLineInput(2L, 1))))
                 .isInstanceOf(OrderValidationException.class)
@@ -172,7 +174,7 @@ class OrderServiceTest {
         Product cola = product("Cola", "COLA-001", "2.50");
         when(productRepo.findById(1L)).thenReturn(Optional.of(cola));
 
-        assertThatThrownBy(() -> orderService.createOrder(List.of(
+        assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(1L, 0))))
                 .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("Quantity must be positive");
@@ -186,7 +188,7 @@ class OrderServiceTest {
         Product cola = product("Cola", "COLA-001", "2.50");
         when(productRepo.findById(1L)).thenReturn(Optional.of(cola));
 
-        assertThatThrownBy(() -> orderService.createOrder(List.of(
+        assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(1L, -1))))
                 .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("Quantity must be positive");
@@ -197,7 +199,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("createOrder: rejects empty line list and does not save")
     void createOrderRejectsEmptyLineList() {
-        assertThatThrownBy(() -> orderService.createOrder(List.of()))
+        assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of()))
                 .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("at least one line");
 
@@ -207,7 +209,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("createOrder: rejects null line list and does not save")
     void createOrderRejectsNullLineList() {
-        assertThatThrownBy(() -> orderService.createOrder(null))
+        assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, null))
                 .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("at least one line");
 
@@ -221,7 +223,7 @@ class OrderServiceTest {
         when(productRepo.findById(1L)).thenReturn(Optional.of(water));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Order saved = orderService.createOrder(List.of(
+        Order saved = orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(1L, 1)));
 
         assertThat(saved.getLines().get(0).getUnitPrice()).isEqualByComparingTo("0.00");
@@ -232,7 +234,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("getOrderById: returns the order when it exists")
     void getOrderByIdReturnsExistingOrder() {
-        Order existing = new Order(OrderStatus.PENDING, java.time.LocalDateTime.now());
+        Order existing = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, java.time.LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(existing));
 
         assertThat(orderService.getOrderById(1L)).contains(existing);
@@ -258,7 +260,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("transitionStatus: PENDING → CONFIRMED is allowed")
     void transitionStatusPendingToConfirmed() {
-        Order order = new Order(OrderStatus.PENDING, java.time.LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, java.time.LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -271,7 +273,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("transitionStatus: PENDING → CANCELLED is allowed")
     void transitionStatusPendingToCancelled() {
-        Order order = new Order(OrderStatus.PENDING, java.time.LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, java.time.LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -284,7 +286,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("transitionStatus: CONFIRMED → COMPLETED is allowed")
     void transitionStatusConfirmedToCompleted() {
-        Order order = new Order(OrderStatus.CONFIRMED, java.time.LocalDateTime.now());
+        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, java.time.LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -297,7 +299,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("transitionStatus: CONFIRMED → CANCELLED is allowed")
     void transitionStatusConfirmedToCancelled() {
-        Order order = new Order(OrderStatus.CONFIRMED, java.time.LocalDateTime.now());
+        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, java.time.LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -312,7 +314,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("transitionStatus: PENDING → COMPLETED is rejected")
     void transitionStatusPendingToCompletedRejected() {
-        Order order = new Order(OrderStatus.PENDING, java.time.LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, java.time.LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.transitionStatus(1L, OrderStatus.COMPLETED))
@@ -325,7 +327,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("transitionStatus: PENDING → PENDING is rejected")
     void transitionStatusPendingToPendingRejected() {
-        Order order = new Order(OrderStatus.PENDING, java.time.LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, java.time.LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.transitionStatus(1L, OrderStatus.PENDING))
@@ -338,7 +340,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("transitionStatus: CONFIRMED → PENDING is rejected")
     void transitionStatusConfirmedToPendingRejected() {
-        Order order = new Order(OrderStatus.CONFIRMED, java.time.LocalDateTime.now());
+        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, java.time.LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.transitionStatus(1L, OrderStatus.PENDING))
@@ -351,7 +353,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("transitionStatus: COMPLETED → anything is rejected")
     void transitionStatusCompletedToAnythingRejected() {
-        Order order = new Order(OrderStatus.COMPLETED, java.time.LocalDateTime.now());
+        Order order = new Order(OrderStatus.COMPLETED, DiningOption.DINE_IN, java.time.LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.transitionStatus(1L, OrderStatus.CANCELLED))
@@ -364,7 +366,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("transitionStatus: CANCELLED → anything is rejected")
     void transitionStatusCancelledToAnythingRejected() {
-        Order order = new Order(OrderStatus.CANCELLED, java.time.LocalDateTime.now());
+        Order order = new Order(OrderStatus.CANCELLED, DiningOption.DINE_IN, java.time.LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.transitionStatus(1L, OrderStatus.PENDING))
@@ -384,5 +386,44 @@ class OrderServiceTest {
                 .hasMessageContaining("Order not found: 99");
 
         verify(orderRepo, never()).save(any(Order.class));
+    }
+
+    // --- createOrder: dining option validation ---
+
+    @Test
+    @DisplayName("createOrder: rejects null dining option and does not save")
+    void createOrderRejectsNullDiningOption() {
+        assertThatThrownBy(() -> orderService.createOrder(null, List.of(
+                new OrderService.OrderLineInput(1L, 1))))
+                .isInstanceOf(OrderValidationException.class)
+                .hasMessageContaining("Dining option is required");
+
+        verify(orderRepo, never()).save(any(Order.class));
+    }
+
+    @Test
+    @DisplayName("createOrder: accepts TAKEOUT dining option")
+    void createOrderAcceptsTakeoutDiningOption() {
+        Product cola = product("Cola", "COLA-001", "2.50");
+        when(productRepo.findById(1L)).thenReturn(Optional.of(cola));
+        when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Order saved = orderService.createOrder(DiningOption.TAKEOUT, List.of(
+                new OrderService.OrderLineInput(1L, 1)));
+
+        assertThat(saved.getDiningOption()).isEqualTo(DiningOption.TAKEOUT);
+    }
+
+    @Test
+    @DisplayName("createOrder: accepts ONLINE dining option")
+    void createOrderAcceptsOnlineDiningOption() {
+        Product cola = product("Cola", "COLA-001", "2.50");
+        when(productRepo.findById(1L)).thenReturn(Optional.of(cola));
+        when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Order saved = orderService.createOrder(DiningOption.ONLINE, List.of(
+                new OrderService.OrderLineInput(1L, 1)));
+
+        assertThat(saved.getDiningOption()).isEqualTo(DiningOption.ONLINE);
     }
 }

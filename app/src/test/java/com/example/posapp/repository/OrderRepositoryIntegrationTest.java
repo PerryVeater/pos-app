@@ -20,6 +20,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import com.example.posapp.entity.DiningOption;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
@@ -68,7 +69,7 @@ class OrderRepositoryIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    @DisplayName("context boots: Flyway records V1–V5 as successful and Hibernate validate passed")
+    @DisplayName("context boots: Flyway records V1–V6 as successful and Hibernate validate passed")
     void contextBootsWithMigratedSchema() {
         // Reaching this point proves the context started, which means Flyway
         // migrated first and ddl-auto=validate accepted the schema. Verify the
@@ -76,7 +77,7 @@ class OrderRepositoryIntegrationTest {
         List<Map<String, Object>> history = jdbcTemplate.queryForList(
                 "SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank");
 
-        assertThat(history).hasSize(5);
+        assertThat(history).hasSize(6);
         assertThat(history.get(0))
                 .containsEntry("version", "1")
                 .containsEntry("description", "create product table")
@@ -97,10 +98,14 @@ class OrderRepositoryIntegrationTest {
                 .containsEntry("version", "5")
                 .containsEntry("description", "create payment table")
                 .containsEntry("success", true);
+        assertThat(history.get(5))
+                .containsEntry("version", "6")
+                .containsEntry("description", "add order dining option")
+                .containsEntry("success", true);
     }
 
     @Test
-    @DisplayName("orders table matches the JPA model: id, status varchar(16), created_at timestamp")
+    @DisplayName("orders table matches the JPA model: id, status varchar(16), dining_option varchar(20), created_at timestamp")
     void ordersTableMatchesJpaModel() {
         List<Map<String, Object>> columns = jdbcTemplate.queryForList(
                 "SELECT column_name, data_type, is_nullable, character_maximum_length"
@@ -109,7 +114,7 @@ class OrderRepositoryIntegrationTest {
 
         assertThat(columns)
                 .extracting(column -> column.get("column_name"))
-                .containsExactly("id", "status", "created_at");
+                .containsExactly("id", "status", "created_at", "dining_option");
         assertThat(columns.get(0))
                 .containsEntry("column_name", "id")
                 .containsEntry("data_type", "bigint");
@@ -121,6 +126,11 @@ class OrderRepositoryIntegrationTest {
         assertThat(columns.get(2))
                 .containsEntry("column_name", "created_at")
                 .containsEntry("data_type", "timestamp without time zone")
+                .containsEntry("is_nullable", "NO");
+        assertThat(columns.get(3))
+                .containsEntry("column_name", "dining_option")
+                .containsEntry("data_type", "character varying")
+                .containsEntry("character_maximum_length", 20)
                 .containsEntry("is_nullable", "NO");
     }
 
@@ -194,7 +204,7 @@ class OrderRepositoryIntegrationTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
 
         // Behavior: a line cannot reference a nonexistent product.
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         Order savedOrder = orderRepository.save(order);
         assertThatThrownBy(() -> jdbcTemplate.update(
                 "INSERT INTO order_line (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)",
@@ -211,7 +221,7 @@ class OrderRepositoryIntegrationTest {
     void cannotDeleteProductInUseByOrderLine() {
         Product p = productRepository.save(
                 new Product("FK Cola 2", "FK-ORD-002", new BigDecimal("1.00"), true));
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(p, 1, new BigDecimal("1.00")));
         orderRepository.save(order);
 
@@ -230,7 +240,7 @@ class OrderRepositoryIntegrationTest {
         Product cola = productRepository.save(
                 new Product("Cascade Cola", "INT-ORD-001", new BigDecimal("2.50"), true));
 
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(cola, 2, new BigDecimal("2.50")));
         Order saved = orderRepository.save(order);
         Long orderId = saved.getId();
@@ -259,7 +269,7 @@ class OrderRepositoryIntegrationTest {
                 new Product("Integration Fries", "INT-ORD-004", new BigDecimal("4.00"), true));
 
         // Create: order with two lines
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(cola, 2, new BigDecimal("2.50")));
         order.addLine(new OrderLine(fries, 1, new BigDecimal("4.00")));
         Order saved = orderRepository.save(order);
@@ -269,6 +279,7 @@ class OrderRepositoryIntegrationTest {
         Optional<Order> loaded = orderRepository.findById(saved.getId());
         assertThat(loaded).isPresent();
         assertThat(loaded.get().getStatus()).isEqualTo(OrderStatus.PENDING);
+        assertThat(loaded.get().getDiningOption()).isEqualTo(DiningOption.DINE_IN);
         assertThat(loaded.get().getCreatedAt()).isNotNull();
         assertThat(loaded.get().getLines()).hasSize(2);
 
@@ -312,7 +323,7 @@ class OrderRepositoryIntegrationTest {
         Product inactive = productRepository.save(
                 new Product("Inactive Cola", "INT-ORD-INACTIVE", new BigDecimal("2.50"), false));
 
-        assertThatThrownBy(() -> orderService.createOrder(List.of(
+        assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(inactive.getId(), 1))))
                 .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("not active");
@@ -329,11 +340,12 @@ class OrderRepositoryIntegrationTest {
         Product cola = productRepository.save(
                 new Product("Price Cola", "INT-ORD-PRICE", new BigDecimal("3.50"), true));
 
-        Order order = orderService.createOrder(List.of(
+        Order order = orderService.createOrder(DiningOption.DINE_IN, List.of(
                 new OrderService.OrderLineInput(cola.getId(), 2)));
 
         assertThat(order.getId()).isNotNull();
         assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING);
+        assertThat(order.getDiningOption()).isEqualTo(DiningOption.DINE_IN);
         assertThat(order.getLines()).hasSize(1);
         assertThat(order.getLines().get(0).getUnitPrice()).isEqualByComparingTo("3.50");
         assertThat(order.getLines().get(0).getUnitPrice()).hasScaleOf(2);
@@ -353,7 +365,7 @@ class OrderRepositoryIntegrationTest {
                 new Product("Total Fries", "INT-ORD-TOTAL-2", new BigDecimal("4.00"), true));
 
         // Create order with two lines: 3×2.50=7.50 + 2×4.00=8.00 = 15.50
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(cola, 3, new BigDecimal("2.50")));
         order.addLine(new OrderLine(fries, 2, new BigDecimal("4.00")));
         Order saved = orderRepository.save(order);
@@ -380,7 +392,7 @@ class OrderRepositoryIntegrationTest {
                 new Product("Transition Cola", "INT-ORD-TRANS-1", new BigDecimal("2.50"), true));
 
         // Create a PENDING order
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(cola, 1, new BigDecimal("2.50")));
         Order saved = orderRepository.save(order);
         assertThat(saved.getStatus()).isEqualTo(OrderStatus.PENDING);
@@ -395,6 +407,55 @@ class OrderRepositoryIntegrationTest {
 
         // Cleanup
         orderRepository.deleteById(saved.getId());
+        productRepository.deleteById(cola.getId());
+    }
+
+    @Test
+    @DisplayName("dining_option: persists TAKEOUT and ONLINE values correctly")
+    void diningOptionPersistsAllValues() {
+        Product cola = productRepository.save(
+                new Product("Dining Cola", "INT-ORD-DINE-1", new BigDecimal("2.50"), true));
+
+        // Test TAKEOUT
+        Order takeoutOrder = new Order(OrderStatus.PENDING, DiningOption.TAKEOUT, LocalDateTime.now());
+        takeoutOrder.addLine(new OrderLine(cola, 1, new BigDecimal("2.50")));
+        Order savedTakeout = orderRepository.save(takeoutOrder);
+
+        Order reloadedTakeout = orderRepository.findById(savedTakeout.getId()).orElseThrow();
+        assertThat(reloadedTakeout.getDiningOption()).isEqualTo(DiningOption.TAKEOUT);
+
+        // Test ONLINE
+        Order onlineOrder = new Order(OrderStatus.PENDING, DiningOption.ONLINE, LocalDateTime.now());
+        onlineOrder.addLine(new OrderLine(cola, 1, new BigDecimal("2.50")));
+        Order savedOnline = orderRepository.save(onlineOrder);
+
+        Order reloadedOnline = orderRepository.findById(savedOnline.getId()).orElseThrow();
+        assertThat(reloadedOnline.getDiningOption()).isEqualTo(DiningOption.ONLINE);
+
+        // Cleanup
+        orderRepository.deleteById(savedTakeout.getId());
+        orderRepository.deleteById(savedOnline.getId());
+        productRepository.deleteById(cola.getId());
+    }
+
+    @Test
+    @DisplayName("OrderService: creates order with dining option against real PostgreSQL")
+    void orderServiceCreatesOrderWithDiningOption() {
+        Product cola = productRepository.save(
+                new Product("Dining Option Cola", "INT-ORD-DINE-2", new BigDecimal("2.50"), true));
+
+        Order order = orderService.createOrder(DiningOption.ONLINE, List.of(
+                new OrderService.OrderLineInput(cola.getId(), 1)));
+
+        assertThat(order.getId()).isNotNull();
+        assertThat(order.getDiningOption()).isEqualTo(DiningOption.ONLINE);
+
+        // Reload and verify it persisted
+        Order reloaded = orderRepository.findById(order.getId()).orElseThrow();
+        assertThat(reloaded.getDiningOption()).isEqualTo(DiningOption.ONLINE);
+
+        // Cleanup
+        orderRepository.deleteById(order.getId());
         productRepository.deleteById(cola.getId());
     }
 }

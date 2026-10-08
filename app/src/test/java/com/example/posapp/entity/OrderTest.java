@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 class OrderTest {
 
     private static Order newOrder() {
-        return new Order(OrderStatus.PENDING, LocalDateTime.now());
+        return new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
     }
 
     @Test
@@ -88,5 +88,21 @@ class OrderTest {
         // 100 × 999.99 = 99999.00
         assertThat(order.getTotal()).isEqualByComparingTo("99999.00");
         assertThat(order.getTotal()).hasScaleOf(2);
+    }
+
+    @Test
+    @DisplayName("diningOption: getter returns the value set in the constructor")
+    void diningOptionGetterReturnsConstructorValue() {
+        Order order = new Order(OrderStatus.PENDING, DiningOption.TAKEOUT, LocalDateTime.now());
+        assertThat(order.getDiningOption()).isEqualTo(DiningOption.TAKEOUT);
+    }
+
+    @Test
+    @DisplayName("diningOption: setter updates the dining option")
+    void diningOptionSetterUpdatesValue() {
+        Order order = newOrder();
+        assertThat(order.getDiningOption()).isEqualTo(DiningOption.DINE_IN);
+        order.setDiningOption(DiningOption.ONLINE);
+        assertThat(order.getDiningOption()).isEqualTo(DiningOption.ONLINE);
     }
 }

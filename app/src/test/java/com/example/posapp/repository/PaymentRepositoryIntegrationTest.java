@@ -17,6 +17,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import com.example.posapp.entity.DiningOption;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
@@ -69,7 +70,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentTableExists() {
         Product product = productRepository.save(
                 new Product("Payment Product", "PAY-PROD-001", new BigDecimal("10.00"), true));
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -99,7 +100,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentCanBeSavedAndReloaded() {
         Product product = productRepository.save(
                 new Product("Reload Product", "PAY-PROD-002", new BigDecimal("25.00"), true));
-        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.now());
+        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 2, new BigDecimal("25.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -129,7 +130,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentRequiresExistingOrder() {
         Product product = productRepository.save(
                 new Product("FK Product", "PAY-PROD-003", new BigDecimal("15.00"), true));
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("15.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -154,7 +155,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentSupportsAllMethods() {
         Product product = productRepository.save(
                 new Product("Method Product", "PAY-PROD-004", new BigDecimal("20.00"), true));
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -185,7 +186,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentSupportsAllStatuses() {
         Product product = productRepository.save(
                 new Product("Status Product", "PAY-PROD-005", new BigDecimal("30.00"), true));
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("30.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -223,7 +224,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentServiceRejectsZeroAmount() {
         Product product = productRepository.save(
                 new Product("Zero Product", "PAY-PROD-006", new BigDecimal("10.00"), true));
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -242,7 +243,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentServiceRejectsNegativeAmount() {
         Product product = productRepository.save(
                 new Product("Neg Product", "PAY-PROD-007", new BigDecimal("10.00"), true));
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -270,7 +271,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentServiceRejectsCancelledOrder() {
         Product product = productRepository.save(
                 new Product("Cancel Product", "PAY-PROD-008", new BigDecimal("10.00"), true));
-        Order order = new Order(OrderStatus.CANCELLED, LocalDateTime.now());
+        Order order = new Order(OrderStatus.CANCELLED, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -289,7 +290,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentServiceCreatesPendingPayment() {
         Product product = productRepository.save(
                 new Product("Valid Product", "PAY-PROD-009", new BigDecimal("20.00"), true));
-        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.now());
+        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -315,7 +316,7 @@ class PaymentRepositoryIntegrationTest {
     void transitionStatusPendingToCompletedIsPersisted() {
         Product product = productRepository.save(
                 new Product("Trans Product 1", "PAY-PROD-010", new BigDecimal("20.00"), true));
-        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.now());
+        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -340,7 +341,7 @@ class PaymentRepositoryIntegrationTest {
     void transitionStatusInvalidTransitionThrows() {
         Product product = productRepository.save(
                 new Product("Trans Product 2", "PAY-PROD-011", new BigDecimal("20.00"), true));
-        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.now());
+        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.now());
         order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
         Order savedOrder = orderRepository.save(order);
 

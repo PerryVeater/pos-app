@@ -18,6 +18,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.example.posapp.entity.DiningOption;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.Payment;
@@ -51,7 +52,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("createPayment: saves and returns a payment with PENDING status")
     void createPaymentSavesPayment() {
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
         when(paymentRepo.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -79,7 +80,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("createPayment: supports CASH payment method")
     void createPaymentCashMethod() {
-        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.now());
+        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
         when(paymentRepo.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -91,7 +92,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("createPayment: supports OTHER payment method")
     void createPaymentOtherMethod() {
-        Order order = new Order(OrderStatus.COMPLETED, LocalDateTime.now());
+        Order order = new Order(OrderStatus.COMPLETED, DiningOption.DINE_IN, LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
         when(paymentRepo.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -104,7 +105,7 @@ class PaymentServiceTest {
     @DisplayName("getPaymentById: returns the payment when it exists")
     void getPaymentByIdReturnsExistingPayment() {
         Payment existing = new Payment(
-                new Order(OrderStatus.PENDING, LocalDateTime.now()),
+                new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now()),
                 new BigDecimal("20.00"),
                 PaymentMethod.CARD,
                 PaymentStatus.PENDING,
@@ -154,7 +155,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("createPayment: rejects cancelled order")
     void createPaymentRejectsCancelledOrder() {
-        Order order = new Order(OrderStatus.CANCELLED, LocalDateTime.now());
+        Order order = new Order(OrderStatus.CANCELLED, DiningOption.DINE_IN, LocalDateTime.now());
         when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() ->
@@ -169,7 +170,7 @@ class PaymentServiceTest {
     @DisplayName("transitionStatus: PENDING → COMPLETED is allowed")
     void transitionStatusPendingToCompleted() {
         Payment payment = new Payment(
-                new Order(OrderStatus.PENDING, LocalDateTime.now()),
+                new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now()),
                 new BigDecimal("25.00"), PaymentMethod.CARD,
                 PaymentStatus.PENDING, LocalDateTime.now());
         when(paymentRepo.findById(1L)).thenReturn(Optional.of(payment));
@@ -185,7 +186,7 @@ class PaymentServiceTest {
     @DisplayName("transitionStatus: PENDING → FAILED is allowed")
     void transitionStatusPendingToFailed() {
         Payment payment = new Payment(
-                new Order(OrderStatus.PENDING, LocalDateTime.now()),
+                new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now()),
                 new BigDecimal("25.00"), PaymentMethod.CARD,
                 PaymentStatus.PENDING, LocalDateTime.now());
         when(paymentRepo.findById(1L)).thenReturn(Optional.of(payment));
@@ -201,7 +202,7 @@ class PaymentServiceTest {
     @DisplayName("transitionStatus: COMPLETED → REFUNDED is allowed")
     void transitionStatusCompletedToRefunded() {
         Payment payment = new Payment(
-                new Order(OrderStatus.PENDING, LocalDateTime.now()),
+                new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now()),
                 new BigDecimal("25.00"), PaymentMethod.CARD,
                 PaymentStatus.COMPLETED, LocalDateTime.now());
         when(paymentRepo.findById(1L)).thenReturn(Optional.of(payment));
@@ -219,7 +220,7 @@ class PaymentServiceTest {
     @DisplayName("transitionStatus: PENDING → PENDING is rejected")
     void transitionStatusPendingToPendingRejected() {
         Payment payment = new Payment(
-                new Order(OrderStatus.PENDING, LocalDateTime.now()),
+                new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now()),
                 new BigDecimal("25.00"), PaymentMethod.CARD,
                 PaymentStatus.PENDING, LocalDateTime.now());
         when(paymentRepo.findById(1L)).thenReturn(Optional.of(payment));
@@ -235,7 +236,7 @@ class PaymentServiceTest {
     @DisplayName("transitionStatus: PENDING → REFUNDED is rejected")
     void transitionStatusPendingToRefundedRejected() {
         Payment payment = new Payment(
-                new Order(OrderStatus.PENDING, LocalDateTime.now()),
+                new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now()),
                 new BigDecimal("25.00"), PaymentMethod.CARD,
                 PaymentStatus.PENDING, LocalDateTime.now());
         when(paymentRepo.findById(1L)).thenReturn(Optional.of(payment));
@@ -251,7 +252,7 @@ class PaymentServiceTest {
     @DisplayName("transitionStatus: COMPLETED → PENDING is rejected")
     void transitionStatusCompletedToPendingRejected() {
         Payment payment = new Payment(
-                new Order(OrderStatus.PENDING, LocalDateTime.now()),
+                new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now()),
                 new BigDecimal("25.00"), PaymentMethod.CARD,
                 PaymentStatus.COMPLETED, LocalDateTime.now());
         when(paymentRepo.findById(1L)).thenReturn(Optional.of(payment));
@@ -267,7 +268,7 @@ class PaymentServiceTest {
     @DisplayName("transitionStatus: FAILED → anything is rejected")
     void transitionStatusFailedToAnythingRejected() {
         Payment payment = new Payment(
-                new Order(OrderStatus.PENDING, LocalDateTime.now()),
+                new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now()),
                 new BigDecimal("25.00"), PaymentMethod.CARD,
                 PaymentStatus.FAILED, LocalDateTime.now());
         when(paymentRepo.findById(1L)).thenReturn(Optional.of(payment));
@@ -283,7 +284,7 @@ class PaymentServiceTest {
     @DisplayName("transitionStatus: REFUNDED → anything is rejected")
     void transitionStatusRefundedToAnythingRejected() {
         Payment payment = new Payment(
-                new Order(OrderStatus.PENDING, LocalDateTime.now()),
+                new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now()),
                 new BigDecimal("25.00"), PaymentMethod.CARD,
                 PaymentStatus.REFUNDED, LocalDateTime.now());
         when(paymentRepo.findById(1L)).thenReturn(Optional.of(payment));

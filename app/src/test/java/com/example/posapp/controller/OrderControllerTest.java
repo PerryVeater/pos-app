@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -19,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.example.posapp.dto.OrderRequest;
 import com.example.posapp.dto.OrderStatusUpdateRequest;
+import com.example.posapp.entity.DiningOption;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
@@ -60,13 +62,13 @@ class OrderControllerTest {
         Product cola = new Product("Cola", "COLA-001", new BigDecimal("2.50"), true);
         Product fries = new Product("Fries", "FRIES-001", new BigDecimal("4.00"), true);
 
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.of(2026, 10, 7, 12, 0));
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.of(2026, 10, 7, 12, 0));
         order.addLine(new OrderLine(cola, 2, new BigDecimal("2.50")));
         order.addLine(new OrderLine(fries, 1, new BigDecimal("4.00")));
 
-        when(orderService.createOrder(any())).thenReturn(order);
+        when(orderService.createOrder(any(), any())).thenReturn(order);
 
-        OrderRequest request = new OrderRequest(List.of(
+        OrderRequest request = new OrderRequest(DiningOption.DINE_IN, List.of(
                 new OrderRequest.OrderLineRequest(1L, 2),
                 new OrderRequest.OrderLineRequest(2L, 1)));
 
@@ -75,21 +77,22 @@ class OrderControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.diningOption").value("DINE_IN"))
                 .andExpect(jsonPath("$.lines").isArray())
                 .andExpect(jsonPath("$.lines.length()").value(2))
                 .andExpect(jsonPath("$.total").value(9.00))
                 .andExpect(jsonPath("$.createdAt").exists());
 
-        verify(orderService).createOrder(any());
+        verify(orderService).createOrder(eq(DiningOption.DINE_IN), any());
     }
 
     @Test
     @DisplayName("POST /api/v1/orders: validation failure returns 400")
     void postInvalidOrderReturns400() throws Exception {
-        when(orderService.createOrder(any()))
+        when(orderService.createOrder(any(), any()))
                 .thenThrow(new OrderValidationException("Order must have at least one line"));
 
-        OrderRequest request = new OrderRequest(List.of());
+        OrderRequest request = new OrderRequest(DiningOption.DINE_IN, List.of());
 
         mockMvc.perform(post("/api/v1/orders")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -103,7 +106,7 @@ class OrderControllerTest {
     @DisplayName("GET /api/v1/orders/{id}: existing order returns 200 with response mapping")
     void getExistingOrderReturns200() throws Exception {
         Product cola = new Product("Cola", "COLA-001", new BigDecimal("2.50"), true);
-        Order order = new Order(OrderStatus.PENDING, LocalDateTime.of(2026, 10, 7, 12, 0));
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.of(2026, 10, 7, 12, 0));
         order.addLine(new OrderLine(cola, 3, new BigDecimal("2.50")));
 
         when(orderService.getOrderById(1L)).thenReturn(Optional.of(order));
@@ -111,6 +114,7 @@ class OrderControllerTest {
         mockMvc.perform(get("/api/v1/orders/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.diningOption").value("DINE_IN"))
                 .andExpect(jsonPath("$.lines").isArray())
                 .andExpect(jsonPath("$.lines.length()").value(1))
                 .andExpect(jsonPath("$.lines[0].quantity").value(3))
@@ -137,7 +141,7 @@ class OrderControllerTest {
     @DisplayName("PATCH /api/v1/orders/{id}/status: valid transition returns 200 with updated order")
     void patchValidTransitionReturns200() throws Exception {
         Product cola = new Product("Cola", "COLA-001", new BigDecimal("2.50"), true);
-        Order order = new Order(OrderStatus.CONFIRMED, LocalDateTime.of(2026, 10, 7, 12, 0));
+        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.of(2026, 10, 7, 12, 0));
         order.addLine(new OrderLine(cola, 2, new BigDecimal("2.50")));
 
         when(orderService.transitionStatus(1L, OrderStatus.CONFIRMED)).thenReturn(order);
@@ -149,6 +153,7 @@ class OrderControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.diningOption").value("DINE_IN"))
                 .andExpect(jsonPath("$.lines").isArray())
                 .andExpect(jsonPath("$.total").value(5.00));
 
@@ -197,5 +202,34 @@ class OrderControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Order not found"))
                 .andExpect(jsonPath("$.detail").value("Order not found: 99"));
+    }
+
+    // --- POST /api/v1/orders: dining option ---
+
+    @Test
+    @DisplayName("POST /api/v1/orders: missing dining option returns 400")
+    void postMissingDiningOptionReturns400() throws Exception {
+        when(orderService.createOrder(org.mockito.ArgumentMatchers.isNull(), any()))
+                .thenThrow(new OrderValidationException("Dining option is required"));
+
+        String jsonWithoutDiningOption = "{\"lines\":[{\"productId\":1,\"quantity\":1}]}";
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonWithoutDiningOption))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.title").value("Invalid order"))
+                .andExpect(jsonPath("$.detail").value("Dining option is required"));
+    }
+
+    @Test
+    @DisplayName("POST /api/v1/orders: invalid dining option value returns 400")
+    void postInvalidDiningOptionReturns400() throws Exception {
+        String jsonWithInvalidDiningOption = "{\"diningOption\":\"INVALID\",\"lines\":[{\"productId\":1,\"quantity\":1}]}";
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonWithInvalidDiningOption))
+                .andExpect(status().isBadRequest());
     }
 }
