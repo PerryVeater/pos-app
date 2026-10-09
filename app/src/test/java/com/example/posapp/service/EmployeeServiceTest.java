@@ -6,6 +6,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -22,6 +23,7 @@ import com.example.posapp.entity.Organization;
 import com.example.posapp.exception.EmployeeNotFoundException;
 import com.example.posapp.exception.EmployeeValidationException;
 import com.example.posapp.exception.OrganizationNotFoundException;
+import com.example.posapp.repository.EmployeeGroupMembershipRepository;
 import com.example.posapp.repository.EmployeeRepository;
 import com.example.posapp.repository.OrganizationRepository;
 
@@ -44,6 +46,9 @@ class EmployeeServiceTest {
 
     @Mock
     private OrganizationRepository organizationRepo;
+
+    @Mock
+    private EmployeeGroupMembershipRepository membershipRepo;
 
     @InjectMocks
     private EmployeeService employeeService;
@@ -217,17 +222,23 @@ class EmployeeServiceTest {
     @Test
     @DisplayName("updateEmployee: the employee can be moved to another organization")
     void updateEmployeeCanMoveToAnotherOrganization() {
-        Organization acme = org("Acme");
+        // The current organization carries a real ID so the guard runs
+        // its intended no-membership path (countByEmployeeId returns 0)
+        // rather than short-circuiting on a null currentOrganizationId.
+        Organization acme = mock(Organization.class);
+        when(acme.getId()).thenReturn(1L);
         Organization globex = org("Globex");
         Employee existing = employee("Ada");
         existing.setOrganization(acme);
         when(organizationRepo.findById(2L)).thenReturn(Optional.of(globex));
         when(employeeRepo.findById(5L)).thenReturn(Optional.of(existing));
+        when(membershipRepo.countByEmployeeId(5L)).thenReturn(0L);
         when(employeeRepo.save(any(Employee.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Employee updated = employeeService.updateEmployee(5L, employee("Ada"), 2L);
 
         assertThat(updated.getOrganization()).isSameAs(globex);
+        verify(membershipRepo).countByEmployeeId(5L);
         verify(employeeRepo).save(existing);
     }
 
@@ -335,6 +346,70 @@ class EmployeeServiceTest {
         verify(employeeRepo, never()).save(any());
     }
 
+    @Test
+    @DisplayName("updateEmployee: moving an employee that still has memberships to another organization is rejected")
+    void updateEmployeeRejectsOrganizationChangeWhenMembershipsExist() {
+        Organization current = mock(Organization.class);
+        when(current.getId()).thenReturn(1L);
+        Employee existing = mock(Employee.class);
+        when(existing.getOrganization()).thenReturn(current);
+        Organization target = org("Globex");
+        when(organizationRepo.findById(2L)).thenReturn(Optional.of(target));
+        when(employeeRepo.findById(5L)).thenReturn(Optional.of(existing));
+        when(membershipRepo.countByEmployeeId(5L)).thenReturn(2L);
+
+        assertThatThrownBy(() -> employeeService.updateEmployee(5L, employee("Ada"), 2L))
+                .isInstanceOf(EmployeeValidationException.class)
+                .hasMessageContaining("Cannot move employee to another organization")
+                .hasMessageContaining("memberships exist")
+                .hasMessageContaining("employeeId=5")
+                .hasMessageContaining("currentOrganizationId=1")
+                .hasMessageContaining("targetOrganizationId=2");
+
+        verify(membershipRepo).countByEmployeeId(5L);
+        verify(employeeRepo, never()).save(any(Employee.class));
+    }
+
+    @Test
+    @DisplayName("updateEmployee: moving a membership-free employee across organizations is allowed")
+    void updateEmployeeAllowsOrganizationChangeWithoutMemberships() {
+        Organization current = mock(Organization.class);
+        when(current.getId()).thenReturn(1L);
+        Employee existing = mock(Employee.class);
+        when(existing.getOrganization()).thenReturn(current);
+        Organization target = org("Globex");
+        when(organizationRepo.findById(2L)).thenReturn(Optional.of(target));
+        when(employeeRepo.findById(5L)).thenReturn(Optional.of(existing));
+        when(membershipRepo.countByEmployeeId(5L)).thenReturn(0L);
+        when(employeeRepo.save(any(Employee.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Employee updated = employeeService.updateEmployee(5L, employee("Ada"), 2L);
+
+        assertThat(updated).isSameAs(existing);
+        verify(membershipRepo).countByEmployeeId(5L);
+        verify(existing).setOrganization(target);
+        verify(employeeRepo).save(existing);
+    }
+
+    @Test
+    @DisplayName("updateEmployee: staying in the same organization skips the membership check even with memberships")
+    void updateEmployeeSameOrganizationSkipsMembershipCheck() {
+        Organization current = mock(Organization.class);
+        when(current.getId()).thenReturn(1L);
+        Employee existing = mock(Employee.class);
+        when(existing.getOrganization()).thenReturn(current);
+        when(organizationRepo.findById(1L)).thenReturn(Optional.of(current));
+        when(employeeRepo.findById(5L)).thenReturn(Optional.of(existing));
+        when(employeeRepo.save(any(Employee.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Employee updated = employeeService.updateEmployee(5L, employee("Ada Lovelace"), 1L);
+
+        assertThat(updated).isSameAs(existing);
+        verify(membershipRepo, never()).countByEmployeeId(any());
+        verify(existing).setOrganization(current);
+        verify(employeeRepo).save(existing);
+    }
+
     // --- deleteEmployee ---
 
     @Test
@@ -355,6 +430,19 @@ class EmployeeServiceTest {
         assertThatThrownBy(() -> employeeService.deleteEmployee(99L))
                 .isInstanceOf(EmployeeNotFoundException.class)
                 .hasMessageContaining("99");
+
+        verify(employeeRepo, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("deleteEmployee: an employee still belonging to a group is rejected and nothing is deleted")
+    void deleteEmployeeWithMembershipsIsRejected() {
+        when(employeeRepo.existsById(5L)).thenReturn(true);
+        when(membershipRepo.countByEmployeeId(5L)).thenReturn(2L);
+
+        assertThatThrownBy(() -> employeeService.deleteEmployee(5L))
+                .isInstanceOf(EmployeeValidationException.class)
+                .hasMessageContaining("still belonging to an employee group");
 
         verify(employeeRepo, never()).deleteById(any());
     }

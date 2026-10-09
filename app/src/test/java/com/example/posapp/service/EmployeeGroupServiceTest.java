@@ -23,6 +23,7 @@ import com.example.posapp.entity.Organization;
 import com.example.posapp.exception.EmployeeGroupNotFoundException;
 import com.example.posapp.exception.EmployeeGroupValidationException;
 import com.example.posapp.exception.OrganizationNotFoundException;
+import com.example.posapp.repository.EmployeeGroupMembershipRepository;
 import com.example.posapp.repository.EmployeeGroupRepository;
 import com.example.posapp.repository.OrganizationRepository;
 
@@ -47,6 +48,9 @@ class EmployeeGroupServiceTest {
 
     @Mock
     private OrganizationRepository organizationRepo;
+
+    @Mock
+    private EmployeeGroupMembershipRepository membershipRepo;
 
     @InjectMocks
     private EmployeeGroupService employeeGroupService;
@@ -359,6 +363,20 @@ class EmployeeGroupServiceTest {
 
         assertThatThrownBy(() -> employeeGroupService.deleteEmployeeGroup(99L))
                 .isInstanceOf(EmployeeGroupNotFoundException.class);
+
+        verify(employeeGroupRepo, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("deleteEmployeeGroup: group with employee members is rejected and nothing is deleted")
+    void deleteEmployeeGroupWithMembersIsRejected() {
+        when(employeeGroupRepo.existsById(1L)).thenReturn(true);
+        when(employeeGroupRepo.countByParentId(1L)).thenReturn(0L);
+        when(membershipRepo.countByEmployeeGroupId(1L)).thenReturn(3L);
+
+        assertThatThrownBy(() -> employeeGroupService.deleteEmployeeGroup(1L))
+                .isInstanceOf(EmployeeGroupValidationException.class)
+                .hasMessageContaining("still having employee members");
 
         verify(employeeGroupRepo, never()).deleteById(any());
     }

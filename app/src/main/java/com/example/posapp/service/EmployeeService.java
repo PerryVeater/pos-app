@@ -10,6 +10,7 @@ import com.example.posapp.entity.Organization;
 import com.example.posapp.exception.EmployeeNotFoundException;
 import com.example.posapp.exception.EmployeeValidationException;
 import com.example.posapp.exception.OrganizationNotFoundException;
+import com.example.posapp.repository.EmployeeGroupMembershipRepository;
 import com.example.posapp.repository.EmployeeRepository;
 import com.example.posapp.repository.OrganizationRepository;
 
@@ -19,12 +20,14 @@ import com.example.posapp.repository.OrganizationRepository;
  * Encapsulates the employee business rules: the name is required; every
  * employee must reference an existing owning {@link Organization} on both
  * create and update (moving an employee to a different organization is
- * allowed as long as the new owner exists); the optional email must be
- * unique within the owning organization when present, while any number of
- * employees may leave it unset. Deleting an employee has no downstream
- * guard because nothing else references it in this foundation; the
- * organization delete guard keeps an organization alive while it still
- * owns employees.
+ * allowed as long as the new owner exists and the employee does not still
+ * belong to any employee group, because memberships are pinned to the
+ * employee's organization through V14's composite foreign keys); the
+ * optional email must be unique within the owning organization when
+ * present, while any number of employees may leave it unset. Deleting an
+ * employee is guarded against attached employee group memberships so a raw
+ * foreign-key violation never surfaces to the client; the organization
+ * delete guard keeps an organization alive while it still owns employees.
  * </p>
  */
 @Service
@@ -32,17 +35,22 @@ public class EmployeeService {
 
     private final EmployeeRepository employeeRepo;
     private final OrganizationRepository organizationRepo;
+    private final EmployeeGroupMembershipRepository membershipRepo;
 
     /**
      * Constructor for EmployeeService.
      * @param employeeRepo the repository for employees
      * @param organizationRepo the repository for organizations, used to
      *        resolve the owning organization on create and update
+     * @param membershipRepo the repository for employee group memberships,
+     *        used by the delete guard
      */
     public EmployeeService(EmployeeRepository employeeRepo,
-                           OrganizationRepository organizationRepo) {
+                           OrganizationRepository organizationRepo,
+                           EmployeeGroupMembershipRepository membershipRepo) {
         this.employeeRepo = employeeRepo;
         this.organizationRepo = organizationRepo;
+        this.membershipRepo = membershipRepo;
     }
 
     /**
@@ -103,6 +111,7 @@ public class EmployeeService {
                                 "Email already exists in organization: organizationId="
                                         + organizationId + ", email=" + normalizedEmail);
                     }
+                    rejectOrganizationChangeWithMemberships(existing, organizationId, id);
                     existing.setName(updated.getName());
                     existing.setEmail(normalizedEmail);
                     existing.setActive(updated.isActive());
@@ -113,13 +122,64 @@ public class EmployeeService {
     }
 
     /**
-     * Delete an employee by ID.
+     * Refuse to move an employee that still belongs to any employee group
+     * into a different organization. The V14 migration pins every
+     * membership row to the employee's organization through a composite
+     * foreign key, so a silent cross-organization update would be rejected
+     * by the database with a raw {@code fk_egm_employee} violation. Doing
+     * the check here turns that into a clean domain-level 400 and gives
+     * callers the opportunity to detach the memberships first. Keeping the
+     * employee inside its current organization (including no-op updates
+     * where the target organization equals the existing one) is always
+     * allowed, and employees without memberships can move freely. The
+     * guard is fail-safe: it short-circuits only when the current and
+     * target organization IDs are both known to be equal, so an
+     * unexpectedly unloaded organization graph (a null
+     * {@code getOrganization()} or a null {@code getId()}) still runs the
+     * membership count rather than silently permitting a move that the
+     * database would later reject.
+     * @param existing the persisted employee about to be updated
+     * @param targetOrganizationId the organization ID requested by the caller
+     * @param id the employee ID, used for the membership count and error text
+     * @throws EmployeeValidationException if the organization is changing
+     *         and the employee still has memberships
+     */
+    private void rejectOrganizationChangeWithMemberships(Employee existing,
+                                                         Long targetOrganizationId,
+                                                         Long id) {
+        Long currentOrganizationId = existing.getOrganization() == null
+                ? null : existing.getOrganization().getId();
+        // Skip the count only when we can prove the organization is not
+        // changing; anything else (different ID or unknown current ID)
+        // falls through so the guard still rejects the update when a
+        // membership exists.
+        if (currentOrganizationId != null && currentOrganizationId.equals(targetOrganizationId)) {
+            return;
+        }
+        if (membershipRepo.countByEmployeeId(id) > 0) {
+            throw new EmployeeValidationException(
+                    "Cannot move employee to another organization while employee group"
+                            + " memberships exist: employeeId=" + id
+                            + ", currentOrganizationId=" + currentOrganizationId
+                            + ", targetOrganizationId=" + targetOrganizationId);
+        }
+    }
+
+    /**
+     * Delete an employee by ID. Refuses to delete an employee that still
+     * belongs to at least one employee group so callers must remove the
+     * memberships first.
      * @param id the employee ID
      * @throws EmployeeNotFoundException if no employee exists with the ID
+     * @throws EmployeeValidationException if the employee still has group memberships
      */
     public void deleteEmployee(Long id) {
         if (!employeeRepo.existsById(id)) {
             throw new EmployeeNotFoundException(id);
+        }
+        if (membershipRepo.countByEmployeeId(id) > 0) {
+            throw new EmployeeValidationException(
+                    "Cannot delete employee still belonging to an employee group: " + id);
         }
         employeeRepo.deleteById(id);
     }

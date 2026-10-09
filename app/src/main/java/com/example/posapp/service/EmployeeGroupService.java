@@ -13,6 +13,7 @@ import com.example.posapp.entity.Organization;
 import com.example.posapp.exception.EmployeeGroupNotFoundException;
 import com.example.posapp.exception.EmployeeGroupValidationException;
 import com.example.posapp.exception.OrganizationNotFoundException;
+import com.example.posapp.repository.EmployeeGroupMembershipRepository;
 import com.example.posapp.repository.EmployeeGroupRepository;
 import com.example.posapp.repository.OrganizationRepository;
 
@@ -35,17 +36,22 @@ public class EmployeeGroupService {
 
     private final EmployeeGroupRepository employeeGroupRepo;
     private final OrganizationRepository organizationRepo;
+    private final EmployeeGroupMembershipRepository membershipRepo;
 
     /**
      * Constructor for EmployeeGroupService.
      * @param employeeGroupRepo the repository for employee groups
      * @param organizationRepo the repository for organizations, used to
      *        resolve the owning organization on create
+     * @param membershipRepo the repository for employee group memberships,
+     *        used by the delete guard
      */
     public EmployeeGroupService(EmployeeGroupRepository employeeGroupRepo,
-                                OrganizationRepository organizationRepo) {
+                                OrganizationRepository organizationRepo,
+                                EmployeeGroupMembershipRepository membershipRepo) {
         this.employeeGroupRepo = employeeGroupRepo;
         this.organizationRepo = organizationRepo;
+        this.membershipRepo = membershipRepo;
     }
 
     /**
@@ -102,11 +108,12 @@ public class EmployeeGroupService {
 
     /**
      * Delete an employee group by ID. Refuses to delete a group that still
-     * has child groups so callers must remove or re-parent the children
-     * first.
+     * has child groups or attached employee memberships so callers must
+     * remove the children and detach the members first.
      * @param id the employee group ID
      * @throws EmployeeGroupNotFoundException if no group exists with the ID
      * @throws EmployeeGroupValidationException if the group still has child groups
+     *         or employee members
      */
     public void deleteEmployeeGroup(Long id) {
         if (!employeeGroupRepo.existsById(id)) {
@@ -115,6 +122,10 @@ public class EmployeeGroupService {
         if (employeeGroupRepo.countByParentId(id) > 0) {
             throw new EmployeeGroupValidationException(
                     "Cannot delete employee group still having child groups: " + id);
+        }
+        if (membershipRepo.countByEmployeeGroupId(id) > 0) {
+            throw new EmployeeGroupValidationException(
+                    "Cannot delete employee group still having employee members: " + id);
         }
         employeeGroupRepo.deleteById(id);
     }
