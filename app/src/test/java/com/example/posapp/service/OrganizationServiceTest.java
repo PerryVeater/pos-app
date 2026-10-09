@@ -23,6 +23,7 @@ import com.example.posapp.entity.Store;
 import com.example.posapp.exception.OrganizationNotFoundException;
 import com.example.posapp.exception.OrganizationValidationException;
 import com.example.posapp.repository.EmployeeGroupRepository;
+import com.example.posapp.repository.EmployeeRepository;
 import com.example.posapp.repository.OrganizationRepository;
 import com.example.posapp.repository.StoreRepository;
 
@@ -31,9 +32,9 @@ import com.example.posapp.repository.StoreRepository;
  * <p>
  * The repositories are mocked, so these tests exercise the service in
  * isolation: name validation, duplicate-name rejection, the delete guards
- * that keep an organization alive while it still owns stores or employee
- * groups, and the store and root employee group listing sub-resources. No
- * Spring context or database is required.
+ * that keep an organization alive while it still owns stores, employee
+ * groups, or employees, and the store and root employee group listing
+ * sub-resources. No Spring context or database is required.
  * </p>
  */
 @ExtendWith(MockitoExtension.class)
@@ -47,6 +48,9 @@ class OrganizationServiceTest {
 
     @Mock
     private EmployeeGroupRepository employeeGroupRepo;
+
+    @Mock
+    private EmployeeRepository employeeRepo;
 
     @InjectMocks
     private OrganizationService organizationService;
@@ -207,6 +211,21 @@ class OrganizationServiceTest {
         assertThatThrownBy(() -> organizationService.deleteOrganization(3L))
                 .isInstanceOf(OrganizationValidationException.class)
                 .hasMessageContaining("still owning employee groups");
+
+        verify(organizationRepo, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("deleteOrganization: rejects deletion when the organization still owns employees")
+    void deleteOrganizationWithEmployeesThrows() {
+        when(organizationRepo.existsById(4L)).thenReturn(true);
+        when(storeRepo.countByOrganizationId(4L)).thenReturn(0L);
+        when(employeeGroupRepo.countByOrganizationId(4L)).thenReturn(0L);
+        when(employeeRepo.countByOrganizationId(4L)).thenReturn(2L);
+
+        assertThatThrownBy(() -> organizationService.deleteOrganization(4L))
+                .isInstanceOf(OrganizationValidationException.class)
+                .hasMessageContaining("still owning employees");
 
         verify(organizationRepo, never()).deleteById(any());
     }

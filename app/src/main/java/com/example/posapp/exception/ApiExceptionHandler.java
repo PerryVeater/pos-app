@@ -190,6 +190,28 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * Map a missing employee to HTTP 404 Not Found.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(EmployeeNotFoundException.class)
+    public ProblemDetail handleEmployeeNotFound(EmployeeNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "Employee not found", ex.getMessage());
+    }
+
+    /**
+     * Map an employee business rule violation (blank name, email already
+     * used by another employee in the same organization) to HTTP 400 Bad
+     * Request.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(EmployeeValidationException.class)
+    public ProblemDetail handleEmployeeValidation(EmployeeValidationException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid employee", ex.getMessage());
+    }
+
+    /**
      * Map an invalid argument (e.g. a negative price) to HTTP 400 Bad Request.
      * @param ex the exception thrown by the service layer
      * @return a problem detail describing the error
