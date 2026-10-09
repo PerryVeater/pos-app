@@ -5,10 +5,12 @@ import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
+import com.example.posapp.entity.EmployeeGroup;
 import com.example.posapp.entity.Organization;
 import com.example.posapp.entity.Store;
 import com.example.posapp.exception.OrganizationNotFoundException;
 import com.example.posapp.exception.OrganizationValidationException;
+import com.example.posapp.repository.EmployeeGroupRepository;
 import com.example.posapp.repository.OrganizationRepository;
 import com.example.posapp.repository.StoreRepository;
 
@@ -16,10 +18,12 @@ import com.example.posapp.repository.StoreRepository;
  * Service layer for {@link Organization} entities and their owned stores.
  * <p>
  * Encapsulates the tenancy business rules: names are required and unique;
- * an organization cannot be deleted while it still owns any store, so
- * callers must remove or re-parent the stores first. Stores themselves are
- * managed by {@link StoreService}; this service only exposes the read side
- * of the ownership relationship and the delete guard.
+ * an organization cannot be deleted while it still owns any store or
+ * employee group, so callers must remove, re-parent, or delete those
+ * first. Stores and employee groups themselves are managed by
+ * {@link StoreService} and {@link EmployeeGroupService}; this service
+ * exposes the read side of the ownership relationships and the delete
+ * guards.
  * </p>
  */
 @Service
@@ -27,17 +31,22 @@ public class OrganizationService {
 
     private final OrganizationRepository organizationRepo;
     private final StoreRepository storeRepo;
+    private final EmployeeGroupRepository employeeGroupRepo;
 
     /**
      * Constructor for OrganizationService.
      * @param organizationRepo the repository for organizations
      * @param storeRepo the repository for stores, used by the delete guard
      *        and the store listing
+     * @param employeeGroupRepo the repository for employee groups, used by
+     *        the delete guard and the root employee group listing
      */
     public OrganizationService(OrganizationRepository organizationRepo,
-                               StoreRepository storeRepo) {
+                               StoreRepository storeRepo,
+                               EmployeeGroupRepository employeeGroupRepo) {
         this.organizationRepo = organizationRepo;
         this.storeRepo = storeRepo;
+        this.employeeGroupRepo = employeeGroupRepo;
     }
 
     /**
@@ -82,11 +91,12 @@ public class OrganizationService {
 
     /**
      * Delete an organization by ID. Refuses to delete an organization that
-     * still owns any store so callers must remove or re-parent the stores
-     * first.
+     * still owns any store or employee group so callers must remove,
+     * re-parent, or delete those first.
      * @param id the organization ID
      * @throws OrganizationNotFoundException if no organization exists with the ID
-     * @throws OrganizationValidationException if the organization still owns stores
+     * @throws OrganizationValidationException if the organization still owns
+     *         stores or employee groups
      */
     public void deleteOrganization(Long id) {
         if (!organizationRepo.existsById(id)) {
@@ -95,6 +105,10 @@ public class OrganizationService {
         if (storeRepo.countByOrganizationId(id) > 0) {
             throw new OrganizationValidationException(
                     "Cannot delete organization still owning stores: " + id);
+        }
+        if (employeeGroupRepo.countByOrganizationId(id) > 0) {
+            throw new OrganizationValidationException(
+                    "Cannot delete organization still owning employee groups: " + id);
         }
         organizationRepo.deleteById(id);
     }
@@ -131,6 +145,21 @@ public class OrganizationService {
             throw new OrganizationNotFoundException(organizationId);
         }
         return storeRepo.findByOrganizationId(organizationId);
+    }
+
+    /**
+     * Return the root employee groups owned by an organization, i.e. the
+     * groups that have no parent group. Child groups are reachable through
+     * {@code GET /api/v1/employee-groups/{id}/children}.
+     * @param organizationId the organization ID
+     * @return the root employee groups (empty when the organization has none)
+     * @throws OrganizationNotFoundException if no organization exists with the ID
+     */
+    public List<EmployeeGroup> listRootEmployeeGroups(Long organizationId) {
+        if (!organizationRepo.existsById(organizationId)) {
+            throw new OrganizationNotFoundException(organizationId);
+        }
+        return employeeGroupRepo.findByOrganizationIdAndParentIsNull(organizationId);
     }
 
     /**

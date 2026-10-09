@@ -17,10 +17,12 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.example.posapp.entity.EmployeeGroup;
 import com.example.posapp.entity.Organization;
 import com.example.posapp.entity.Store;
 import com.example.posapp.exception.OrganizationNotFoundException;
 import com.example.posapp.exception.OrganizationValidationException;
+import com.example.posapp.repository.EmployeeGroupRepository;
 import com.example.posapp.repository.OrganizationRepository;
 import com.example.posapp.repository.StoreRepository;
 
@@ -28,9 +30,10 @@ import com.example.posapp.repository.StoreRepository;
  * Unit tests for the {@link OrganizationService} business rules.
  * <p>
  * The repositories are mocked, so these tests exercise the service in
- * isolation: name validation, duplicate-name rejection, the delete guard
- * that keeps an organization alive while it still owns stores, and the
- * store listing sub-resource. No Spring context or database is required.
+ * isolation: name validation, duplicate-name rejection, the delete guards
+ * that keep an organization alive while it still owns stores or employee
+ * groups, and the store and root employee group listing sub-resources. No
+ * Spring context or database is required.
  * </p>
  */
 @ExtendWith(MockitoExtension.class)
@@ -41,6 +44,9 @@ class OrganizationServiceTest {
 
     @Mock
     private StoreRepository storeRepo;
+
+    @Mock
+    private EmployeeGroupRepository employeeGroupRepo;
 
     @InjectMocks
     private OrganizationService organizationService;
@@ -56,6 +62,15 @@ class OrganizationServiceTest {
     private static Store sampleStore(Organization owner, String name) {
         return new Store(owner, name, "US", "CA", "Los Angeles",
                 "123 Main St", "90001", "America/Los_Angeles");
+    }
+
+    /**
+     * Build a root employee group owned by the given organization.
+     */
+    private static EmployeeGroup group(Organization owner, String name) {
+        EmployeeGroup group = new EmployeeGroup(name);
+        group.setOrganization(owner);
+        return group;
     }
 
     // --- createOrganization ---
@@ -183,6 +198,20 @@ class OrganizationServiceTest {
     }
 
     @Test
+    @DisplayName("deleteOrganization: rejects deletion when the organization still owns employee groups")
+    void deleteOrganizationWithEmployeeGroupsThrows() {
+        when(organizationRepo.existsById(3L)).thenReturn(true);
+        when(storeRepo.countByOrganizationId(3L)).thenReturn(0L);
+        when(employeeGroupRepo.countByOrganizationId(3L)).thenReturn(1L);
+
+        assertThatThrownBy(() -> organizationService.deleteOrganization(3L))
+                .isInstanceOf(OrganizationValidationException.class)
+                .hasMessageContaining("still owning employee groups");
+
+        verify(organizationRepo, never()).deleteById(any());
+    }
+
+    @Test
     @DisplayName("deleteOrganization: missing ID throws OrganizationNotFoundException")
     void deleteOrganizationMissingThrows() {
         when(organizationRepo.existsById(99L)).thenReturn(false);
@@ -253,5 +282,35 @@ class OrganizationServiceTest {
                 .hasMessageContaining("99");
 
         verify(storeRepo, never()).findByOrganizationId(any());
+    }
+
+    // --- listRootEmployeeGroups ---
+
+    @Test
+    @DisplayName("listRootEmployeeGroups: returns the root groups for an existing organization")
+    void listRootEmployeeGroupsReturnsRoots() {
+        Organization organization = org("Acme");
+        when(organizationRepo.existsById(1L)).thenReturn(true);
+        when(employeeGroupRepo.findByOrganizationIdAndParentIsNull(1L)).thenReturn(List.of(
+                group(organization, "Front of House"),
+                group(organization, "Back of House")));
+
+        List<EmployeeGroup> roots = organizationService.listRootEmployeeGroups(1L);
+
+        assertThat(roots).hasSize(2)
+                .extracting(EmployeeGroup::getName)
+                .containsExactly("Front of House", "Back of House");
+    }
+
+    @Test
+    @DisplayName("listRootEmployeeGroups: throws OrganizationNotFoundException when the organization is missing")
+    void listRootEmployeeGroupsMissingOrganizationThrows() {
+        when(organizationRepo.existsById(99L)).thenReturn(false);
+
+        assertThatThrownBy(() -> organizationService.listRootEmployeeGroups(99L))
+                .isInstanceOf(OrganizationNotFoundException.class)
+                .hasMessageContaining("99");
+
+        verify(employeeGroupRepo, never()).findByOrganizationIdAndParentIsNull(any());
     }
 }

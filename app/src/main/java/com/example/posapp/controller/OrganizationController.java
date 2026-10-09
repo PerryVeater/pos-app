@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.example.posapp.dto.EmployeeGroupResponse;
 import com.example.posapp.dto.OrganizationRequest;
 import com.example.posapp.dto.OrganizationResponse;
 import com.example.posapp.dto.StoreResponse;
@@ -22,8 +23,9 @@ import com.example.posapp.service.OrganizationService;
 import jakarta.validation.Valid;
 
 /**
- * REST controller for organization operations, including the sub-resource
- * for listing the stores owned by an organization.
+ * REST controller for organization operations, including the sub-resources
+ * for listing the stores and the root employee groups owned by an
+ * organization.
  * <p>
  * Business rules are enforced by {@link OrganizationService}. The HTTP
  * contract is decoupled from the JPA model via {@link OrganizationRequest}
@@ -118,6 +120,19 @@ public class OrganizationController {
     public List<StoreResponse> listStores(@PathVariable Long id) {
         return organizationService.listStores(id).stream()
                 .map(StoreResponse::from)
+                .toList();
+    }
+
+    /**
+     * List the root employee groups owned by an organization. Child groups
+     * are exposed through {@code GET /api/v1/employee-groups/{id}/children}.
+     * @param id the organization ID
+     * @return the root employee groups owned by the organization
+     */
+    @GetMapping("/{id}/employee-groups")
+    public List<EmployeeGroupResponse> listEmployeeGroups(@PathVariable Long id) {
+        return organizationService.listRootEmployeeGroups(id).stream()
+                .map(EmployeeGroupResponse::from)
                 .toList();
     }
 }

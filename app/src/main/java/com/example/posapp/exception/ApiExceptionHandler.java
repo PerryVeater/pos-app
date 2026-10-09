@@ -166,6 +166,30 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * Map a missing employee group (the aggregate root itself, a group's
+     * requested parent, or the parent whose children were requested) to
+     * HTTP 404 Not Found.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(EmployeeGroupNotFoundException.class)
+    public ProblemDetail handleEmployeeGroupNotFound(EmployeeGroupNotFoundException ex) {
+        return problem(HttpStatus.NOT_FOUND, "Employee group not found", ex.getMessage());
+    }
+
+    /**
+     * Map an employee group business rule violation (blank name,
+     * cross-organization parent, self-parenting, circular hierarchy,
+     * deletion blocked by child groups) to HTTP 400 Bad Request.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(EmployeeGroupValidationException.class)
+    public ProblemDetail handleEmployeeGroupValidation(EmployeeGroupValidationException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid employee group", ex.getMessage());
+    }
+
+    /**
      * Map an invalid argument (e.g. a negative price) to HTTP 400 Bad Request.
      * @param ex the exception thrown by the service layer
      * @return a problem detail describing the error

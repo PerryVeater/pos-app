@@ -26,6 +26,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.example.posapp.entity.EmployeeGroup;
 import com.example.posapp.entity.Organization;
 import com.example.posapp.entity.Store;
 import com.example.posapp.exception.OrganizationNotFoundException;
@@ -296,5 +297,46 @@ class OrganizationControllerTest {
         mockMvc.perform(get("/api/v1/organizations/1/stores"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    // --- GET /api/v1/organizations/{id}/employee-groups ---
+
+    @Test
+    @DisplayName("GET /api/v1/organizations/{id}/employee-groups returns the root groups")
+    void listEmployeeGroupsReturnsRoots() throws Exception {
+        Organization acme = acme();
+        EmployeeGroup front = new EmployeeGroup("Front of House");
+        front.setOrganization(acme);
+        EmployeeGroup back = new EmployeeGroup("Back of House");
+        back.setOrganization(acme);
+        when(organizationService.listRootEmployeeGroups(1L)).thenReturn(List.of(front, back));
+
+        mockMvc.perform(get("/api/v1/organizations/1/employee-groups"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$[0].name").value("Front of House"))
+                .andExpect(jsonPath("$[1].name").value("Back of House"))
+                .andExpect(jsonPath("$[0].children").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/organizations/{id}/employee-groups returns an empty array when none exist")
+    void listEmployeeGroupsEmptyReturnsEmptyArray() throws Exception {
+        when(organizationService.listRootEmployeeGroups(1L)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/organizations/1/employee-groups"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(0)));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/organizations/{id}/employee-groups returns 404 when the organization is missing")
+    void listEmployeeGroupsMissingOrganizationReturns404() throws Exception {
+        when(organizationService.listRootEmployeeGroups(99L))
+                .thenThrow(new OrganizationNotFoundException(99L));
+
+        mockMvc.perform(get("/api/v1/organizations/99/employee-groups"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Organization not found"));
     }
 }
