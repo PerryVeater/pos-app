@@ -93,7 +93,9 @@ public class StoreController {
     }
 
     /**
-     * Delete a store by ID.
+     * Delete a store by ID. Returns 404 when the store does not exist and
+     * 400 when it still has employee assignments; neither a missing store
+     * nor an attached one is deleted.
      * @param id the store ID
      * @return 204 No Content
      */

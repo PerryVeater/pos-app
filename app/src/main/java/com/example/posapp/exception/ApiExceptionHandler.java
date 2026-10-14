@@ -155,8 +155,9 @@ public class ApiExceptionHandler {
 
     /**
      * Map an organization or store business rule violation (blank name,
-     * duplicate name, deletion blocked by attached stores) to HTTP 400 Bad
-     * Request.
+     * duplicate name, deletion blocked by attached stores, store deletion
+     * or organization change blocked by attached employee assignments) to
+     * HTTP 400 Bad Request.
      * @param ex the exception thrown by the service layer
      * @return a problem detail describing the error
      */
@@ -201,14 +202,26 @@ public class ApiExceptionHandler {
 
     /**
      * Map an employee business rule violation (blank name, email already
-     * used by another employee in the same organization) to HTTP 400 Bad
-     * Request.
+     * used by another employee in the same organization, deletion blocked
+     * by group memberships or store assignments, organization change while
+     * attached to a group or store) to HTTP 400 Bad Request.
      * @param ex the exception thrown by the service layer
      * @return a problem detail describing the error
      */
     @ExceptionHandler(EmployeeValidationException.class)
     public ProblemDetail handleEmployeeValidation(EmployeeValidationException ex) {
         return problem(HttpStatus.BAD_REQUEST, "Invalid employee", ex.getMessage());
+    }
+
+    /**
+     * Map an employee-to-store assignment business rule violation
+     * (cross-organization assignment attempt) to HTTP 400 Bad Request.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(EmployeeStoreValidationException.class)
+    public ProblemDetail handleEmployeeStoreValidation(EmployeeStoreValidationException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid employee store assignment", ex.getMessage());
     }
 
     /**

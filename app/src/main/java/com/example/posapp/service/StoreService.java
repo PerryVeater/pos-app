@@ -14,6 +14,7 @@ import com.example.posapp.entity.Store;
 import com.example.posapp.exception.OrganizationNotFoundException;
 import com.example.posapp.exception.OrganizationValidationException;
 import com.example.posapp.exception.StoreNotFoundException;
+import com.example.posapp.repository.EmployeeStoreAssignmentRepository;
 import com.example.posapp.repository.OrganizationRepository;
 import com.example.posapp.repository.StoreRepository;
 
@@ -24,12 +25,14 @@ import com.example.posapp.repository.StoreRepository;
  * unique); an optional {@code storeNumber} is unique within the owning
  * organization when present; every store must reference an existing
  * {@link Organization} on both create and update (re-parenting is allowed
- * as long as the new owner exists); the {@code country} must be a real
- * ISO 3166-1 alpha-2 code (normalized to uppercase); and the IANA
- * {@code timezone} must be a valid zone identifier recognized by
- * {@link ZoneId#getAvailableZoneIds()}.
- * Deleting a store has no downstream guard because nothing else references
- * it in this foundation.
+ * as long as the new owner exists and the store has no employee
+ * assignments left, because assignments are pinned to the store's
+ * organization through V15's composite foreign keys); the {@code country}
+ * must be a real ISO 3166-1 alpha-2 code (normalized to uppercase); and
+ * the IANA {@code timezone} must be a valid zone identifier recognized by
+ * {@link ZoneId#getAvailableZoneIds()}. Deleting a store is guarded
+ * against attached employee store assignments so a raw foreign-key
+ * violation never surfaces to the client.
  * </p>
  */
 @Service
@@ -46,17 +49,22 @@ public class StoreService {
 
     private final StoreRepository storeRepo;
     private final OrganizationRepository organizationRepo;
+    private final EmployeeStoreAssignmentRepository assignmentRepo;
 
     /**
      * Constructor for StoreService.
      * @param storeRepo the repository for stores
      * @param organizationRepo the repository for organizations, used to
      *        resolve the owning organization on create and update
+     * @param assignmentRepo the repository for employee store assignments,
+     *        used by the delete and organization-change guards
      */
     public StoreService(StoreRepository storeRepo,
-                        OrganizationRepository organizationRepo) {
+                        OrganizationRepository organizationRepo,
+                        EmployeeStoreAssignmentRepository assignmentRepo) {
         this.storeRepo = storeRepo;
         this.organizationRepo = organizationRepo;
+        this.assignmentRepo = assignmentRepo;
     }
 
     /**
@@ -94,7 +102,8 @@ public class StoreService {
      * Update an existing store, including re-parenting it to a different
      * organization. The store number is validated against the target
      * organization, so re-parenting a store into an organization that
-     * already uses its number is rejected.
+     * already uses its number is rejected. Re-parenting is refused while
+     * the store still has employee assignments.
      * @param id the store ID
      * @param updated the replacement values
      * @param organizationId the new owning organization ID (required; may
@@ -104,8 +113,9 @@ public class StoreService {
      * @throws OrganizationNotFoundException if the organization ID is missing
      *         or does not exist
      * @throws OrganizationValidationException if a required field is missing,
-     *         the timezone is invalid, or the store number conflicts with
-     *         another store in the target organization
+     *         the timezone is invalid, the store number conflicts with
+     *         another store in the target organization, or the organization
+     *         is changing while the store still has employee assignments
      */
     public Store updateStore(Long id, Store updated, Long organizationId) {
         Organization organization = resolveOrganization(organizationId);
@@ -123,6 +133,7 @@ public class StoreService {
                                 "Store number already exists in organization: organizationId="
                                         + organizationId + ", storeNumber=" + normalizedNumber);
                     }
+                    rejectOrganizationChangeWithAssignments(existing, organizationId, id);
                     existing.setName(updated.getName());
                     existing.setActive(updated.isActive());
                     existing.setOrganization(organization);
@@ -142,12 +153,62 @@ public class StoreService {
     }
 
     /**
-     * Delete a store by ID. Missing ID is a silent no-op matching the
-     * delete semantics used by other aggregates without downstream
-     * references.
+     * Refuse to move a store that still has employee assignments into a
+     * different organization. The V15 migration pins every assignment row
+     * to the store's organization through a composite foreign key, so a
+     * silent cross-organization update would be rejected by the database
+     * with a raw {@code fk_esa_store} violation. Doing the check here
+     * turns that into a clean domain-level 400 and gives callers the
+     * opportunity to detach the assignments first. Mirrors
+     * {@code EmployeeService.rejectOrganizationChangeWithAttachments} and
+     * is likewise fail-safe: the count runs whenever the organization is
+     * not provably unchanged.
+     * @param existing the persisted store about to be updated
+     * @param targetOrganizationId the organization ID requested by the caller
+     * @param id the store ID, used for the assignment count and error text
+     * @throws OrganizationValidationException if the organization is
+     *         changing and the store still has assigned employees
+     */
+    private void rejectOrganizationChangeWithAssignments(Store existing,
+                                                         Long targetOrganizationId,
+                                                         Long id) {
+        Long currentOrganizationId = existing.getOrganization() == null
+                ? null : existing.getOrganization().getId();
+        // Skip the count only when we can prove the organization is not
+        // changing; anything else (different ID or unknown current ID)
+        // falls through so the guard still rejects the update when an
+        // assignment exists.
+        if (currentOrganizationId != null && currentOrganizationId.equals(targetOrganizationId)) {
+            return;
+        }
+        if (assignmentRepo.countByStoreId(id) > 0) {
+            throw new OrganizationValidationException(
+                    "Cannot move store to another organization while employee"
+                            + " assignments exist: storeId=" + id
+                            + ", currentOrganizationId=" + currentOrganizationId
+                            + ", targetOrganizationId=" + targetOrganizationId);
+        }
+    }
+
+    /**
+     * Delete a store by ID. Refuses to delete a store that still has
+     * employee assignments so callers must remove the assignments first.
+     * A missing store is reported as not found rather than being the
+     * silent no-op {@code deleteById} would otherwise perform, matching
+     * the employee and employee group delete semantics.
      * @param id the store ID
+     * @throws StoreNotFoundException if no store exists with the ID
+     * @throws OrganizationValidationException if the store still has
+     *         employee assignments
      */
     public void deleteStore(Long id) {
+        if (!storeRepo.existsById(id)) {
+            throw new StoreNotFoundException(id);
+        }
+        if (assignmentRepo.countByStoreId(id) > 0) {
+            throw new OrganizationValidationException(
+                    "Cannot delete store still having assigned employees: " + id);
+        }
         storeRepo.deleteById(id);
     }
 

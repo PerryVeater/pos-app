@@ -24,6 +24,7 @@ import com.example.posapp.exception.EmployeeNotFoundException;
 import com.example.posapp.exception.EmployeeValidationException;
 import com.example.posapp.exception.OrganizationNotFoundException;
 import com.example.posapp.repository.EmployeeGroupMembershipRepository;
+import com.example.posapp.repository.EmployeeStoreAssignmentRepository;
 import com.example.posapp.repository.EmployeeRepository;
 import com.example.posapp.repository.OrganizationRepository;
 
@@ -49,6 +50,9 @@ class EmployeeServiceTest {
 
     @Mock
     private EmployeeGroupMembershipRepository membershipRepo;
+
+    @Mock
+    private EmployeeStoreAssignmentRepository assignmentRepo;
 
     @InjectMocks
     private EmployeeService employeeService;
@@ -368,6 +372,50 @@ class EmployeeServiceTest {
 
         verify(membershipRepo).countByEmployeeId(5L);
         verify(employeeRepo, never()).save(any(Employee.class));
+    }
+
+    @Test
+    @DisplayName("updateEmployee: moving an employee that still has store assignments to another organization is rejected")
+    void updateEmployeeRejectsOrganizationChangeWhenAssignmentsExist() {
+        Organization current = mock(Organization.class);
+        when(current.getId()).thenReturn(1L);
+        Employee existing = mock(Employee.class);
+        when(existing.getOrganization()).thenReturn(current);
+        Organization target = org("Globex");
+        when(organizationRepo.findById(2L)).thenReturn(Optional.of(target));
+        when(employeeRepo.findById(5L)).thenReturn(Optional.of(existing));
+        when(membershipRepo.countByEmployeeId(5L)).thenReturn(0L);
+        when(assignmentRepo.countByEmployeeId(5L)).thenReturn(3L);
+
+        assertThatThrownBy(() -> employeeService.updateEmployee(5L, employee("Ada"), 2L))
+                .isInstanceOf(EmployeeValidationException.class)
+                .hasMessageContaining("Cannot move employee to another organization")
+                .hasMessageContaining("assignments exist")
+                .hasMessageContaining("employeeId=5")
+                .hasMessageContaining("currentOrganizationId=1")
+                .hasMessageContaining("targetOrganizationId=2");
+
+        verify(assignmentRepo).countByEmployeeId(5L);
+        verify(employeeRepo, never()).save(any(Employee.class));
+    }
+
+    @Test
+    @DisplayName("updateEmployee: staying in the same organization skips the assignment count even with assignments")
+    void updateEmployeeSameOrganizationSkipsAssignmentCount() {
+        Organization current = mock(Organization.class);
+        when(current.getId()).thenReturn(1L);
+        Employee existing = mock(Employee.class);
+        when(existing.getOrganization()).thenReturn(current);
+        when(organizationRepo.findById(1L)).thenReturn(Optional.of(current));
+        when(employeeRepo.findById(5L)).thenReturn(Optional.of(existing));
+        when(employeeRepo.save(any(Employee.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Employee updated = employeeService.updateEmployee(5L, employee("Ada Lovelace"), 1L);
+
+        assertThat(updated).isSameAs(existing);
+        verify(assignmentRepo, never()).countByEmployeeId(any());
+        verify(existing).setOrganization(current);
+        verify(employeeRepo).save(existing);
     }
 
     @Test

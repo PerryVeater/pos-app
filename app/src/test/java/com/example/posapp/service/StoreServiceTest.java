@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -23,6 +24,7 @@ import com.example.posapp.entity.Store;
 import com.example.posapp.exception.OrganizationNotFoundException;
 import com.example.posapp.exception.OrganizationValidationException;
 import com.example.posapp.exception.StoreNotFoundException;
+import com.example.posapp.repository.EmployeeStoreAssignmentRepository;
 import com.example.posapp.repository.OrganizationRepository;
 import com.example.posapp.repository.StoreRepository;
 
@@ -45,6 +47,9 @@ class StoreServiceTest {
 
     @Mock
     private OrganizationRepository organizationRepo;
+
+    @Mock
+    private EmployeeStoreAssignmentRepository assignmentRepo;
 
     @InjectMocks
     private StoreService storeService;
@@ -366,14 +371,103 @@ class StoreServiceTest {
         verify(storeRepo, never()).findById(any());
     }
 
+    @Test
+    @DisplayName("updateStore: re-parenting a store that still has employee assignments is rejected")
+    void updateStoreRejectsOrganizationChangeWhenAssignmentsExist() {
+        Organization current = mock(Organization.class);
+        when(current.getId()).thenReturn(1L);
+        Store existing = mock(Store.class);
+        when(existing.getOrganization()).thenReturn(current);
+        Organization target = acme();
+        when(organizationRepo.findById(2L)).thenReturn(Optional.of(target));
+        when(storeRepo.findById(7L)).thenReturn(Optional.of(existing));
+        when(assignmentRepo.countByStoreId(7L)).thenReturn(2L);
+
+        assertThatThrownBy(() -> storeService.updateStore(7L, validStore(), 2L))
+                .isInstanceOf(OrganizationValidationException.class)
+                .hasMessageContaining("Cannot move store to another organization")
+                .hasMessageContaining("assignments exist")
+                .hasMessageContaining("storeId=7")
+                .hasMessageContaining("currentOrganizationId=1")
+                .hasMessageContaining("targetOrganizationId=2");
+
+        verify(assignmentRepo).countByStoreId(7L);
+        verify(storeRepo, never()).save(any(Store.class));
+    }
+
+    @Test
+    @DisplayName("updateStore: re-parenting an assignment-free store is allowed")
+    void updateStoreAllowsOrganizationChangeWithoutAssignments() {
+        Organization current = mock(Organization.class);
+        when(current.getId()).thenReturn(1L);
+        Store existing = validStore();
+        existing.setOrganization(current);
+        Organization target = acme();
+        when(organizationRepo.findById(2L)).thenReturn(Optional.of(target));
+        when(storeRepo.findById(7L)).thenReturn(Optional.of(existing));
+        when(assignmentRepo.countByStoreId(7L)).thenReturn(0L);
+        when(storeRepo.save(any(Store.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Store updated = storeService.updateStore(7L, validStore(), 2L);
+
+        assertThat(updated.getOrganization()).isSameAs(target);
+        verify(assignmentRepo).countByStoreId(7L);
+        verify(storeRepo).save(existing);
+    }
+
+    @Test
+    @DisplayName("updateStore: staying in the same organization skips the assignment count")
+    void updateStoreSameOrganizationSkipsAssignmentCount() {
+        Organization current = mock(Organization.class);
+        when(current.getId()).thenReturn(1L);
+        Store existing = validStore();
+        existing.setOrganization(current);
+        when(organizationRepo.findById(1L)).thenReturn(Optional.of(current));
+        when(storeRepo.findById(7L)).thenReturn(Optional.of(existing));
+        when(storeRepo.save(any(Store.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Store updated = storeService.updateStore(7L, validStore(), 1L);
+
+        assertThat(updated.getOrganization()).isSameAs(current);
+        verify(assignmentRepo, never()).countByStoreId(any());
+        verify(storeRepo).save(existing);
+    }
+
     // --- deleteStore / getAllStores / getStoreById ---
 
     @Test
-    @DisplayName("deleteStore: delegates to the repository")
+    @DisplayName("deleteStore: an existing store without assignments is deleted")
     void deleteStoreDelegatesToRepository() {
+        when(storeRepo.existsById(1L)).thenReturn(true);
+
         storeService.deleteStore(1L);
 
         verify(storeRepo).deleteById(1L);
+    }
+
+    @Test
+    @DisplayName("deleteStore: a missing store is rejected instead of a silent no-op")
+    void deleteStoreMissingThrows() {
+        when(storeRepo.existsById(99L)).thenReturn(false);
+
+        assertThatThrownBy(() -> storeService.deleteStore(99L))
+                .isInstanceOf(StoreNotFoundException.class)
+                .hasMessageContaining("99");
+
+        verify(storeRepo, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("deleteStore: a store with assigned employees is rejected and nothing is deleted")
+    void deleteStoreWithAssignmentsIsRejected() {
+        when(storeRepo.existsById(1L)).thenReturn(true);
+        when(assignmentRepo.countByStoreId(1L)).thenReturn(3L);
+
+        assertThatThrownBy(() -> storeService.deleteStore(1L))
+                .isInstanceOf(OrganizationValidationException.class)
+                .hasMessageContaining("still having assigned employees");
+
+        verify(storeRepo, never()).deleteById(any());
     }
 
     @Test
