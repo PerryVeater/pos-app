@@ -241,6 +241,44 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * Map a POS PIN authentication failure to HTTP 401 Unauthorized. Every
+     * reason a login can fail (unknown or inactive store, no assigned
+     * employee, missing credential, wrong PIN, inactive employee) funnels
+     * through the same generic message so the response never confirms or
+     * denies the existence of a store, employee, assignment, or credential.
+     * @param ex the exception thrown by the authentication service
+     * @return a generic problem detail
+     */
+    @ExceptionHandler(PosAuthFailedException.class)
+    public ProblemDetail handlePosAuthFailed(PosAuthFailedException ex) {
+        return problem(HttpStatus.UNAUTHORIZED, "Authentication failed", ex.getMessage());
+    }
+
+    /**
+     * Map an invalid POS session - a missing or malformed bearer token, or
+     * one that is unknown, expired, or revoked - to HTTP 401 Unauthorized.
+     * The message is generic and never echoes the presented token.
+     * @param ex the exception thrown by the session service
+     * @return a generic problem detail
+     */
+    @ExceptionHandler(PosSessionInvalidException.class)
+    public ProblemDetail handlePosSessionInvalid(PosSessionInvalidException ex) {
+        return problem(HttpStatus.UNAUTHORIZED, "Invalid session", ex.getMessage());
+    }
+
+    /**
+     * Map a POS authentication rate-limit breach to HTTP 429 Too Many
+     * Requests. The throttle is applied before any credential is examined, so
+     * this response says nothing about whether the supplied PIN was valid.
+     * @param ex the exception thrown when the attempt limit is exceeded
+     * @return a generic problem detail
+     */
+    @ExceptionHandler(PosAuthRateLimitedException.class)
+    public ProblemDetail handlePosAuthRateLimited(PosAuthRateLimitedException ex) {
+        return problem(HttpStatus.TOO_MANY_REQUESTS, "Too many requests", ex.getMessage());
+    }
+
+    /**
      * Map an invalid argument (e.g. a negative price) to HTTP 400 Bad Request.
      * @param ex the exception thrown by the service layer
      * @return a problem detail describing the error
