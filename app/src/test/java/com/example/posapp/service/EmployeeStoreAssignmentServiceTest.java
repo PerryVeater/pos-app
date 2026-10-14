@@ -43,7 +43,10 @@ import com.example.posapp.repository.StoreRepository;
  * require the aggregate to exist. Because entities cannot be assigned IDs
  * directly, tests that need distinct organization IDs stub Mockito mocks
  * for {@link Organization} rather than persisting rows. No Spring context
- * or database is required.
+ * or database is required. The PIN writer collaborator is mocked and left
+ * unstubbed for the legacy scenarios: an unstubbed {@code findCredential}
+ * returns an empty {@link Optional}, so every pre-existing assignment
+ * expectation still runs down the original no-PIN path unchanged.
  * </p>
  */
 @ExtendWith(MockitoExtension.class)
@@ -57,6 +60,9 @@ class EmployeeStoreAssignmentServiceTest {
 
     @Mock
     private EmployeeStoreAssignmentRepository assignmentRepo;
+
+    @Mock
+    private EmployeeStorePinWriter pinWriter;
 
     @InjectMocks
     private EmployeeStoreAssignmentService assignmentService;

@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.posapp.entity.Employee;
+import com.example.posapp.entity.EmployeePinCredential;
 import com.example.posapp.entity.EmployeeStoreAssignment;
 import com.example.posapp.entity.Store;
 import com.example.posapp.exception.EmployeeNotFoundException;
@@ -32,6 +33,16 @@ import com.example.posapp.repository.StoreRepository;
  * composite foreign keys added by the V15 migration.
  * </p>
  * <p>
+ * When the employee holds a POS PIN credential, adding an assignment also
+ * has to materialize that employee's PIN claim at the new store, and a
+ * conflict with another employee's claim at the same store must reject the
+ * whole operation without leaving a partial assignment. Those writes are
+ * delegated to {@link EmployeeStorePinWriter#assignWithPinClaim}, which
+ * inserts assignment and claim in one transaction backed by
+ * {@code uk_epss_store_fingerprint}. Employees without a credential take
+ * the original path byte-for-byte, so existing behavior is untouched.
+ * </p>
+ * <p>
  * Both mutating operations are idempotent: adding an existing assignment
  * is a no-op and removing a missing assignment is a no-op, so clients can
  * safely retry PUT/DELETE without a prior GET. The add path also survives
@@ -54,19 +65,24 @@ public class EmployeeStoreAssignmentService {
     private final EmployeeRepository employeeRepo;
     private final StoreRepository storeRepo;
     private final EmployeeStoreAssignmentRepository assignmentRepo;
+    private final EmployeeStorePinWriter pinWriter;
 
     /**
      * Constructor for EmployeeStoreAssignmentService.
      * @param employeeRepo the repository for employees
      * @param storeRepo the repository for stores
      * @param assignmentRepo the repository for employee ↔ store assignments
+     * @param pinWriter the transactional PIN writer, consulted only when
+     *        the employee being assigned holds a PIN credential
      */
     public EmployeeStoreAssignmentService(EmployeeRepository employeeRepo,
                                           StoreRepository storeRepo,
-                                          EmployeeStoreAssignmentRepository assignmentRepo) {
+                                          EmployeeStoreAssignmentRepository assignmentRepo,
+                                          EmployeeStorePinWriter pinWriter) {
         this.employeeRepo = employeeRepo;
         this.storeRepo = storeRepo;
         this.assignmentRepo = assignmentRepo;
+        this.pinWriter = pinWriter;
     }
 
     /**
@@ -84,12 +100,23 @@ public class EmployeeStoreAssignmentService {
      * uniqueness constraint is rethrown unchanged so unrelated integrity
      * errors keep surfacing as 400 "Conflicting data".
      * </p>
+     * <p>
+     * When the employee already holds a POS PIN credential, the insert is
+     * routed through {@link EmployeeStorePinWriter#assignWithPinClaim} so
+     * the assignment and the store PIN claim commit atomically; a
+     * {@code uk_epss_store_fingerprint} conflict (another employee at this
+     * store already uses the same PIN) rejects the whole operation with a
+     * 400, leaving no partial assignment. Employees without a credential
+     * take the original insert path unchanged.
+     * </p>
      * @param employeeId the employee ID
      * @param storeId the store ID
      * @return the existing or newly saved assignment
      * @throws EmployeeNotFoundException if the employee does not exist
      * @throws StoreNotFoundException if the store does not exist
-     * @throws EmployeeStoreValidationException if the pair crosses organizations
+     * @throws EmployeeStoreValidationException if the pair crosses
+     *         organizations, or if assigning would create a store-scoped
+     *         PIN conflict for a PIN-carrying employee
      */
     public EmployeeStoreAssignment assignEmployeeToStore(Long employeeId, Long storeId) {
         Employee employee = employeeRepo.findById(employeeId)
@@ -102,8 +129,53 @@ public class EmployeeStoreAssignmentService {
                             + employeeId + ", storeId=" + storeId);
         }
         return assignmentRepo.findByEmployeeIdAndStoreId(employeeId, storeId)
-                .orElseGet(() -> insertOrRecoverConcurrentDuplicate(employee, store,
-                        employeeId, storeId));
+                .orElseGet(() -> {
+                    String fingerprint = pinWriter.findCredential(employeeId)
+                            .map(EmployeePinCredential::getPinFingerprint)
+                            .orElse(null);
+                    if (fingerprint == null) {
+                        return insertOrRecoverConcurrentDuplicate(employee, store,
+                                employeeId, storeId);
+                    }
+                    return insertWithPinOrRecover(employee, store, fingerprint,
+                            employeeId, storeId);
+                });
+    }
+
+    /**
+     * Insert an assignment for a PIN-carrying employee together with the
+     * store PIN claim, atomically through the writer. A concurrent request
+     * committing the same (employee, store) pair first is recovered
+     * idempotently; a {@code uk_epss_store_fingerprint} violation becomes a
+     * 400 {@link EmployeeStoreValidationException} carrying no fingerprint
+     * material, and the writer's transaction has already rolled back the
+     * assignment insert so no partial row remains. Any other integrity
+     * failure is rethrown unchanged.
+     * @param employee the resolved employee
+     * @param store the resolved store
+     * @param fingerprint the employee's current PIN fingerprint
+     * @param employeeId the employee ID used for the recovery read
+     * @param storeId the store ID used for the recovery read
+     * @return the newly saved assignment or the concurrently created one
+     */
+    private EmployeeStoreAssignment insertWithPinOrRecover(Employee employee, Store store,
+                                                           String fingerprint,
+                                                           Long employeeId, Long storeId) {
+        try {
+            return pinWriter.assignWithPinClaim(employee, store, fingerprint);
+        } catch (DataIntegrityViolationException ex) {
+            if (EmployeePinService.isFingerprintConflict(ex)) {
+                throw new EmployeeStoreValidationException(
+                        "Assigning this employee would conflict with another employee's"
+                                + " PIN at the store: employeeId=" + employeeId
+                                + ", storeId=" + storeId);
+            }
+            if (!EmployeeStorePinWriter.isDuplicatePairViolation(ex)) {
+                throw ex;
+            }
+            return pinWriter.findAssignment(employeeId, storeId)
+                    .orElseThrow(() -> ex);
+        }
     }
 
     /**
