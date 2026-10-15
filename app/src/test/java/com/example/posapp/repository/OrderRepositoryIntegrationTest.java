@@ -9,6 +9,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,10 +23,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.example.posapp.entity.DiningOption;
+import com.example.posapp.entity.Employee;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.MenuItem;
+import com.example.posapp.entity.Organization;
+import com.example.posapp.entity.Store;
 import com.example.posapp.exception.OrderValidationException;
 import com.example.posapp.service.OrderService;
 
@@ -68,8 +73,62 @@ class OrderRepositoryIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private OrganizationRepository organizationRepository;
+
+    @Autowired
+    private StoreRepository storeRepository;
+
+    @Autowired
+    private EmployeeRepository employeeRepository;
+
+    /**
+     * A persisted store/employee pair created before every test so that orders
+     * can satisfy the {@code NOT NULL} attribution the POS-only model requires.
+     * {@link #clearAllTables()} wipes them after each test, so the fixed names
+     * never collide across runs.
+     */
+    private Store store;
+    private Employee employee;
+
+    @BeforeEach
+    void createAttributionFixture() {
+        Organization org = organizationRepository.save(new Organization("Order IT Acme"));
+        Store s = new Store(null, "Downtown", "US", "CA", "Los Angeles",
+                "123 Main St", "90001", "America/Los_Angeles");
+        s.setOrganization(org);
+        store = storeRepository.save(s);
+        Employee e = new Employee("Ada");
+        e.setOrganization(org);
+        e.setEmail("ada-orderit@example.com");
+        employee = employeeRepository.save(e);
+    }
+
+    @AfterEach
+    void clearAllTables() {
+        // FK-safe order: children before the attribution parents they reference.
+        jdbcTemplate.execute("DELETE FROM order_line");
+        jdbcTemplate.execute("DELETE FROM orders");
+        jdbcTemplate.execute("DELETE FROM product");
+        jdbcTemplate.execute("DELETE FROM employee");
+        jdbcTemplate.execute("DELETE FROM stores");
+        jdbcTemplate.execute("DELETE FROM organization");
+    }
+
+    /**
+     * Build an order carrying the fixture store and employee, as every persisted
+     * order must now.
+     */
+    private Order attributedOrder(OrderStatus status, DiningOption dining) {
+        Order order = new Order(status, dining, LocalDateTime.now());
+        order.setStore(store);
+        order.setEmployee(employee);
+        return order;
+    }
+
+
     @Test
-    @DisplayName("context boots: Flyway records V1–V17 as successful and Hibernate validate passed")
+    @DisplayName("context boots: Flyway records V1–V19 as successful and Hibernate validate passed")
     void contextBootsWithMigratedSchema() {
         // Reaching this point proves the context started, which means Flyway
         // migrated first and ddl-auto=validate accepted the schema. Verify the
@@ -77,7 +136,7 @@ class OrderRepositoryIntegrationTest {
         List<Map<String, Object>> history = jdbcTemplate.queryForList(
                 "SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank");
 
-        assertThat(history).hasSize(17);
+        assertThat(history).hasSize(19);
         assertThat(history.get(0))
                 .containsEntry("version", "1")
                 .containsEntry("description", "create product table")
@@ -146,10 +205,18 @@ class OrderRepositoryIntegrationTest {
                 .containsEntry("version", "17")
                 .containsEntry("description", "add pos sessions")
                 .containsEntry("success", true);
+        assertThat(history.get(17))
+                .containsEntry("version", "18")
+                .containsEntry("description", "add order store employee")
+                .containsEntry("success", true);
+        assertThat(history.get(18))
+                .containsEntry("version", "19")
+                .containsEntry("description", "make order attribution non nullable")
+                .containsEntry("success", true);
     }
 
     @Test
-    @DisplayName("orders table matches the JPA model: id, status varchar(16), dining_option varchar(20), created_at timestamp")
+    @DisplayName("orders table matches the JPA model: id, status varchar(16), dining_option varchar(20), created_at timestamp, non-null store_id/employee_id")
     void ordersTableMatchesJpaModel() {
         List<Map<String, Object>> columns = jdbcTemplate.queryForList(
                 "SELECT column_name, data_type, is_nullable, character_maximum_length"
@@ -158,7 +225,8 @@ class OrderRepositoryIntegrationTest {
 
         assertThat(columns)
                 .extracting(column -> column.get("column_name"))
-                .containsExactly("id", "status", "created_at", "dining_option");
+                .containsExactly("id", "status", "created_at", "dining_option",
+                        "store_id", "employee_id");
         assertThat(columns.get(0))
                 .containsEntry("column_name", "id")
                 .containsEntry("data_type", "bigint");
@@ -176,6 +244,38 @@ class OrderRepositoryIntegrationTest {
                 .containsEntry("data_type", "character varying")
                 .containsEntry("character_maximum_length", 20)
                 .containsEntry("is_nullable", "NO");
+        // V19 makes the attribution columns required: the POS-only order model
+        // always records the session's store and employee.
+        assertThat(columns.get(4))
+                .containsEntry("column_name", "store_id")
+                .containsEntry("data_type", "bigint")
+                .containsEntry("is_nullable", "NO");
+        assertThat(columns.get(5))
+                .containsEntry("column_name", "employee_id")
+                .containsEntry("data_type", "bigint")
+                .containsEntry("is_nullable", "NO");
+    }
+
+    @Test
+    @DisplayName("orders attribution foreign keys exist and reference stores and employee")
+    void ordersAttributionForeignKeys() {
+        List<Map<String, Object>> constraints = jdbcTemplate.queryForList(
+                "SELECT tc.constraint_name, ccu.table_name AS referenced_table"
+                + " FROM information_schema.table_constraints tc"
+                + " JOIN information_schema.key_column_usage kcu"
+                + "   ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema"
+                + " JOIN information_schema.constraint_column_usage ccu"
+                + "   ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema"
+                + " WHERE tc.table_name = 'orders' AND tc.constraint_type = 'FOREIGN KEY'"
+                + " ORDER BY tc.constraint_name");
+
+        assertThat(constraints)
+                .anySatisfy(row -> assertThat(row)
+                        .containsEntry("constraint_name", "fk_orders_store")
+                        .containsEntry("referenced_table", "stores"))
+                .anySatisfy(row -> assertThat(row)
+                        .containsEntry("constraint_name", "fk_orders_employee")
+                        .containsEntry("referenced_table", "employee"));
     }
 
     @Test
@@ -248,7 +348,7 @@ class OrderRepositoryIntegrationTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
 
         // Behavior: a line cannot reference a nonexistent product.
-        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.PENDING, DiningOption.DINE_IN);
         Order savedOrder = orderRepository.save(order);
         assertThatThrownBy(() -> jdbcTemplate.update(
                 "INSERT INTO order_line (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)",
@@ -265,7 +365,7 @@ class OrderRepositoryIntegrationTest {
     void cannotDeleteMenuItemInUseByOrderLine() {
         MenuItem p = productRepository.save(
                 new MenuItem("FK Cola 2", "FK-ORD-002", new BigDecimal("1.00"), true));
-        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.PENDING, DiningOption.DINE_IN);
         order.addLine(new OrderLine(p, 1, new BigDecimal("1.00")));
         orderRepository.save(order);
 
@@ -284,7 +384,7 @@ class OrderRepositoryIntegrationTest {
         MenuItem cola = productRepository.save(
                 new MenuItem("Cascade Cola", "INT-ORD-001", new BigDecimal("2.50"), true));
 
-        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.PENDING, DiningOption.DINE_IN);
         order.addLine(new OrderLine(cola, 2, new BigDecimal("2.50")));
         Order saved = orderRepository.save(order);
         Long orderId = saved.getId();
@@ -313,7 +413,7 @@ class OrderRepositoryIntegrationTest {
                 new MenuItem("Integration Fries", "INT-ORD-004", new BigDecimal("4.00"), true));
 
         // Create: order with two lines
-        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.PENDING, DiningOption.DINE_IN);
         order.addLine(new OrderLine(cola, 2, new BigDecimal("2.50")));
         order.addLine(new OrderLine(fries, 1, new BigDecimal("4.00")));
         Order saved = orderRepository.save(order);
@@ -368,7 +468,7 @@ class OrderRepositoryIntegrationTest {
                 new MenuItem("Inactive Cola", "INT-ORD-INACTIVE", new BigDecimal("2.50"), false));
 
         assertThatThrownBy(() -> orderService.createOrder(DiningOption.DINE_IN, List.of(
-                new OrderService.OrderLineInput(inactive.getId(), 1))))
+                new OrderService.OrderLineInput(inactive.getId(), 1)), store, employee))
                 .isInstanceOf(OrderValidationException.class)
                 .hasMessageContaining("not active");
 
@@ -385,7 +485,7 @@ class OrderRepositoryIntegrationTest {
                 new MenuItem("Price Cola", "INT-ORD-PRICE", new BigDecimal("3.50"), true));
 
         Order order = orderService.createOrder(DiningOption.DINE_IN, List.of(
-                new OrderService.OrderLineInput(cola.getId(), 2)));
+                new OrderService.OrderLineInput(cola.getId(), 2)), store, employee);
 
         assertThat(order.getId()).isNotNull();
         assertThat(order.getStatus()).isEqualTo(OrderStatus.PENDING);
@@ -409,7 +509,7 @@ class OrderRepositoryIntegrationTest {
                 new MenuItem("Total Fries", "INT-ORD-TOTAL-2", new BigDecimal("4.00"), true));
 
         // Create order with two lines: 3×2.50=7.50 + 2×4.00=8.00 = 15.50
-        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.PENDING, DiningOption.DINE_IN);
         order.addLine(new OrderLine(cola, 3, new BigDecimal("2.50")));
         order.addLine(new OrderLine(fries, 2, new BigDecimal("4.00")));
         Order saved = orderRepository.save(order);
@@ -436,13 +536,13 @@ class OrderRepositoryIntegrationTest {
                 new MenuItem("Transition Cola", "INT-ORD-TRANS-1", new BigDecimal("2.50"), true));
 
         // Create a PENDING order
-        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.PENDING, DiningOption.DINE_IN);
         order.addLine(new OrderLine(cola, 1, new BigDecimal("2.50")));
         Order saved = orderRepository.save(order);
         assertThat(saved.getStatus()).isEqualTo(OrderStatus.PENDING);
 
         // Transition to CONFIRMED via the service
-        Order transitioned = orderService.transitionStatus(saved.getId(), OrderStatus.CONFIRMED);
+        Order transitioned = orderService.transitionStatus(saved.getId(), store.getId(), OrderStatus.CONFIRMED);
         assertThat(transitioned.getStatus()).isEqualTo(OrderStatus.CONFIRMED);
 
         // Reload from database and verify the status persisted
@@ -461,7 +561,7 @@ class OrderRepositoryIntegrationTest {
                 new MenuItem("Dining Cola", "INT-ORD-DINE-1", new BigDecimal("2.50"), true));
 
         // Test TAKEOUT
-        Order takeoutOrder = new Order(OrderStatus.PENDING, DiningOption.TAKEOUT, LocalDateTime.now());
+        Order takeoutOrder = attributedOrder(OrderStatus.PENDING, DiningOption.TAKEOUT);
         takeoutOrder.addLine(new OrderLine(cola, 1, new BigDecimal("2.50")));
         Order savedTakeout = orderRepository.save(takeoutOrder);
 
@@ -469,7 +569,7 @@ class OrderRepositoryIntegrationTest {
         assertThat(reloadedTakeout.getDiningOption()).isEqualTo(DiningOption.TAKEOUT);
 
         // Test ONLINE
-        Order onlineOrder = new Order(OrderStatus.PENDING, DiningOption.ONLINE, LocalDateTime.now());
+        Order onlineOrder = attributedOrder(OrderStatus.PENDING, DiningOption.ONLINE);
         onlineOrder.addLine(new OrderLine(cola, 1, new BigDecimal("2.50")));
         Order savedOnline = orderRepository.save(onlineOrder);
 
@@ -489,7 +589,7 @@ class OrderRepositoryIntegrationTest {
                 new MenuItem("Dining Option Cola", "INT-ORD-DINE-2", new BigDecimal("2.50"), true));
 
         Order order = orderService.createOrder(DiningOption.ONLINE, List.of(
-                new OrderService.OrderLineInput(cola.getId(), 1)));
+                new OrderService.OrderLineInput(cola.getId(), 1)), store, employee);
 
         assertThat(order.getId()).isNotNull();
         assertThat(order.getDiningOption()).isEqualTo(DiningOption.ONLINE);

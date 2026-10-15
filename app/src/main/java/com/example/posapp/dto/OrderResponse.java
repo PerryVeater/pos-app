@@ -10,15 +10,20 @@ import com.example.posapp.entity.Order;
 /**
  * Response DTO for an order.
  * <p>
- * Exposes the order ID, status, dining option, creation timestamp, line items,
- * and computed total. The total is calculated by the {@link Order#getTotal()}
- * method and represents the sum of all line subtotals.
+ * Exposes the order ID, status, dining option, creation timestamp, store and
+ * employee attribution, line items, and computed total. The total is calculated
+ * by the {@link Order#getTotal()} method and represents the sum of all line
+ * subtotals. Store and employee attribution are always present: the POS order
+ * lifecycle is the only way an order is created and derives them from the
+ * authenticated session.
  * </p>
  *
  * @param id the order ID
  * @param status the order status (PENDING, CONFIRMED, COMPLETED, CANCELLED)
  * @param diningOption how the order will be consumed (DINE_IN, TAKEOUT, ONLINE)
  * @param createdAt the timestamp when the order was created
+ * @param storeId the owning store ID, derived from the authenticated session
+ * @param employeeId the creating employee ID, derived from the authenticated session
  * @param lines the line items in the order
  * @param total the computed order total
  */
@@ -27,6 +32,8 @@ public record OrderResponse(
         String status,
         DiningOption diningOption,
         LocalDateTime createdAt,
+        Long storeId,
+        Long employeeId,
         List<OrderLineResponse> lines,
         BigDecimal total) {
 
@@ -63,6 +70,8 @@ public record OrderResponse(
                 order.getStatus().name(),
                 order.getDiningOption(),
                 order.getCreatedAt(),
+                order.getStore().getId(),
+                order.getEmployee().getId(),
                 lineResponses,
                 order.getTotal());
     }
