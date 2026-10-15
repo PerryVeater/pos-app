@@ -11,9 +11,12 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 
@@ -32,6 +35,10 @@ import jakarta.persistence.Table;
  *   <li>{@code status} - Lifecycle state of the order.</li>
  *   <li>{@code diningOption} - How the order will be consumed.</li>
  *   <li>{@code createdAt} - Timestamp when the order was created.</li>
+ *   <li>{@code store} - The owning store, always present and derived from the
+ *       authenticated POS session (required).</li>
+ *   <li>{@code employee} - The creating employee, always present and derived
+ *       from the authenticated POS session (required).</li>
  *   <li>{@code lines} - Line items belonging to this order.</li>
  * </ul>
  * </p>
@@ -66,6 +73,31 @@ public class Order {
      */
     @Column(nullable = false)
     private LocalDateTime createdAt;
+
+    /**
+     * The store the order belongs to. Required: the POS order lifecycle is the
+     * only way an order is created, and it always stamps the store derived from
+     * the authenticated bearer session - the client never supplies it. Loaded
+     * eagerly so the ID is available when mapping responses outside a
+     * transaction. The join column and constraint name match the
+     * {@code fk_orders_store} foreign key (Flyway V18), tightened to NOT NULL by
+     * Flyway V19.
+     */
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "store_id", nullable = false,
+            foreignKey = @ForeignKey(name = "fk_orders_store"))
+    private Store store;
+
+    /**
+     * The employee who created the order. Required, derived from the
+     * authenticated bearer session and never supplied by the client. The join
+     * column and constraint name match the {@code fk_orders_employee} foreign
+     * key (Flyway V18), tightened to NOT NULL by Flyway V19.
+     */
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "employee_id", nullable = false,
+            foreignKey = @ForeignKey(name = "fk_orders_employee"))
+    private Employee employee;
 
     /**
      * Line items belonging to this order. Loaded eagerly so the lines are
@@ -136,6 +168,30 @@ public class Order {
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 
     /**
+     * Get the store the order belongs to.
+     * @return the owning store, always present for a persisted order
+     */
+    public Store getStore() { return store; }
+
+    /**
+     * Set the store the order belongs to.
+     * @param store the store derived from the authenticated session
+     */
+    public void setStore(Store store) { this.store = store; }
+
+    /**
+     * Get the employee who created the order.
+     * @return the creating employee, always present for a persisted order
+     */
+    public Employee getEmployee() { return employee; }
+
+    /**
+     * Set the employee who created the order.
+     * @param employee the employee derived from the authenticated session
+     */
+    public void setEmployee(Employee employee) { this.employee = employee; }
+
+    /**
      * Get the line items of the order.
      * @return the line items of the order
      */
@@ -174,6 +230,8 @@ public class Order {
     public String toString() {
         return "Order{id=" + id + ", status=" + status
                 + ", createdAt=" + createdAt
+                + ", store=" + (store == null ? null : store.getId())
+                + ", employee=" + (employee == null ? null : employee.getId())
                 + ", lines=" + lines.size() + "}";
     }
 }

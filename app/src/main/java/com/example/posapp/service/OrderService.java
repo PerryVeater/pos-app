@@ -2,34 +2,37 @@ package com.example.posapp.service;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.example.posapp.entity.DiningOption;
+import com.example.posapp.entity.Employee;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
 import com.example.posapp.entity.MenuItem;
+import com.example.posapp.entity.Store;
 import com.example.posapp.exception.OrderNotFoundException;
 import com.example.posapp.exception.OrderValidationException;
 import com.example.posapp.repository.OrderRepository;
 import com.example.posapp.repository.MenuItemRepository;
 
 /**
- * Service layer for creating and retrieving {@link Order}s.
+ * Service layer for creating and managing {@link Order}s.
  * <p>
- * Encapsulates the business rule that each line's unit price is captured
- * from the product's current price at order-creation time. Later changes
- * to a product's price do not affect existing order lines.
+ * Encapsulates the business rules that each line's unit price is captured from
+ * the product's current price at order-creation time (later changes to a
+ * product's price do not affect existing order lines) and that status changes
+ * follow a fixed transition graph.
  * </p>
  * <p>
- * Typical usage:
- * <ul>
- *   <li>Called by future order endpoints (not yet implemented) to process
- *       client requests.</li>
- *   <li>Ensures data integrity before interacting with the database.</li>
- * </ul>
+ * Every order is attributed to a store and an employee. Attribution is required
+ * at creation and is always derived from the authenticated POS bearer session by
+ * the caller ({@link PosOrderService}); the client never supplies it. Retrieval
+ * and status updates are scoped to a store so one store can never observe or
+ * mutate another store's orders. The legacy unauthenticated order API has been
+ * removed, so these are the only order operations.
  * </p>
  *
  * @see com.example.posapp.entity.Order
@@ -52,24 +55,33 @@ public class OrderService {
     }
 
     /**
-     * Create a new {@link Order} with the given dining option and line items.
+     * Create a new {@link Order} attributed to a store and employee.
      * <p>
-     * Each line's unit price is captured from the referenced product's
-     * current price at creation time. The order starts in
-     * {@link OrderStatus#PENDING}.
+     * Each line's unit price is captured from the referenced product's current
+     * price at creation time. The order starts in {@link OrderStatus#PENDING}
+     * and carries the supplied {@code store} and {@code employee}, which the
+     * caller derives exclusively from the authenticated session - the client
+     * never chooses them.
      * </p>
      *
      * @param diningOption how the order will be consumed; must not be null
      * @param lineInputs the line items to include; each references a product
      *        by ID and a positive quantity
+     * @param store the owning store from the session; must not be null
+     * @param employee the creating employee from the session; must not be null
      * @return the saved {@link Order} with its lines
-     * @throws OrderValidationException if the dining option is null, the list
-     *         is null or empty, a product does not exist, a product is inactive,
-     *         or a quantity is not positive
+     * @throws OrderValidationException if the dining option, store, or employee
+     *         is null, the list is null or empty, a product does not exist, a
+     *         product is inactive, or a quantity is not positive
      */
-    public Order createOrder(DiningOption diningOption, List<OrderLineInput> lineInputs) {
+    public Order createOrder(DiningOption diningOption, List<OrderLineInput> lineInputs,
+                             Store store, Employee employee) {
         if (diningOption == null) {
             throw new OrderValidationException("Dining option is required");
+        }
+
+        if (store == null || employee == null) {
+            throw new OrderValidationException("Order attribution is required");
         }
 
         if (lineInputs == null || lineInputs.isEmpty()) {
@@ -80,6 +92,8 @@ public class OrderService {
         order.setStatus(OrderStatus.PENDING);
         order.setDiningOption(diningOption);
         order.setCreatedAt(LocalDateTime.now());
+        order.setStore(store);
+        order.setEmployee(employee);
 
         for (OrderLineInput input : lineInputs) {
             MenuItem product = menuItemRepo.findById(input.productId())
@@ -104,22 +118,36 @@ public class OrderService {
     }
 
     /**
-     * Retrieve an {@link Order} by its ID.
-     * Returns {@code Optional.empty()} if the {@link Order} does not exist.
+     * Retrieve an {@link Order} by ID, but only if it belongs to the given store.
+     * <p>
+     * The store is derived from the authenticated session rather than supplied
+     * by the client. A nonexistent order and an order owned by a different store
+     * both raise the same {@link OrderNotFoundException}, so the response never
+     * discloses that the order exists at another store.
+     * </p>
      *
-     * @param id the ID of the {@link Order} to retrieve
-     * @return an Optional containing the {@link Order} if found, or empty if not
-     * @throws IllegalArgumentException if the ID is null
+     * @param id the order ID
+     * @param storeId the authenticated session's store ID
+     * @return the order, guaranteed to belong to {@code storeId}
+     * @throws IllegalArgumentException if {@code id} is null
+     * @throws OrderNotFoundException if the order is missing or owned by
+     *         another store
      */
-    public Optional<Order> getOrderById(Long id) {
+    public Order getOrder(Long id, Long storeId) {
         if (id == null) {
             throw new IllegalArgumentException("Order id must not be null");
         }
-        return orderRepo.findById(id);
+        Order order = orderRepo.findById(id)
+                .orElseThrow(() -> new OrderNotFoundException(id));
+        if (order.getStore() == null || !order.getStore().getId().equals(storeId)) {
+            throw new OrderNotFoundException(id);
+        }
+        return order;
     }
 
     /**
-     * Transition an {@link Order} to a new status.
+     * Transition an {@link Order} to a new status, but only if the order
+     * belongs to the given store.
      * <p>
      * Allowed transitions:
      * <ul>
@@ -128,27 +156,51 @@ public class OrderService {
      *   <li>{@link OrderStatus#CONFIRMED} → {@link OrderStatus#COMPLETED}</li>
      *   <li>{@link OrderStatus#CONFIRMED} → {@link OrderStatus#CANCELLED}</li>
      * </ul>
-     * All other transitions are rejected with {@link OrderValidationException}.
      * Terminal states ({@link OrderStatus#COMPLETED}, {@link OrderStatus#CANCELLED})
-     * cannot be transitioned further.
+     * cannot be transitioned further. All other transitions are rejected with
+     * {@link OrderValidationException}.
+     * </p>
+     * <p>
+     * The store-ownership check and the status update run inside a single
+     * transaction so the order cannot change hands between the check and the
+     * write - closing the time-of-check/time-of-use gap a separate read-then-write
+     * would leave. The same generic {@link OrderNotFoundException} used by
+     * {@link #getOrder} is raised for a missing or other-store order, so this
+     * never discloses that the order exists elsewhere.
      * </p>
      *
-     * @param orderId the ID of the order to transition
+     * @param orderId the order to transition
+     * @param storeId the authenticated session's store ID
      * @param newStatus the target status
      * @return the updated {@link Order}
-     * @throws OrderNotFoundException if the order does not exist
+     * @throws OrderNotFoundException if the order is missing or owned by
+     *         another store
      * @throws OrderValidationException if the transition is not allowed
      */
-    public Order transitionStatus(Long orderId, OrderStatus newStatus) {
+    @Transactional
+    public Order transitionStatus(Long orderId, Long storeId, OrderStatus newStatus) {
         Order order = orderRepo.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException(orderId));
+        if (order.getStore() == null || !order.getStore().getId().equals(storeId)) {
+            throw new OrderNotFoundException(orderId);
+        }
+        return applyTransition(order, newStatus);
+    }
 
+    /**
+     * Validate and apply a status transition on a loaded order and persist it.
+     * Kept in one place so the transition rules are defined exactly once.
+     * @param order the order to transition
+     * @param newStatus the target status
+     * @return the saved order
+     * @throws OrderValidationException if the transition is not allowed
+     */
+    private Order applyTransition(Order order, OrderStatus newStatus) {
         OrderStatus currentStatus = order.getStatus();
         if (!isAllowedTransition(currentStatus, newStatus)) {
             throw new OrderValidationException(
                     "Cannot transition from " + currentStatus + " to " + newStatus);
         }
-
         order.setStatus(newStatus);
         return orderRepo.save(order);
     }

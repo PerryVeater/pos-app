@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,13 +19,16 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.example.posapp.entity.DiningOption;
+import com.example.posapp.entity.Employee;
 import com.example.posapp.entity.Order;
 import com.example.posapp.entity.OrderLine;
 import com.example.posapp.entity.OrderStatus;
+import com.example.posapp.entity.Organization;
 import com.example.posapp.entity.Payment;
 import com.example.posapp.entity.PaymentMethod;
 import com.example.posapp.entity.PaymentStatus;
 import com.example.posapp.entity.MenuItem;
+import com.example.posapp.entity.Store;
 import com.example.posapp.exception.PaymentNotFoundException;
 import com.example.posapp.exception.PaymentValidationException;
 import com.example.posapp.service.PaymentService;
@@ -65,12 +69,54 @@ class PaymentRepositoryIntegrationTest {
     @Autowired
     private PaymentService paymentService;
 
+    @Autowired
+    private OrganizationRepository organizationRepository;
+
+    @Autowired
+    private StoreRepository storeRepository;
+
+    @Autowired
+    private EmployeeRepository employeeRepository;
+
+    /**
+     * A persisted store/employee pair created before every test so that the
+     * orders payments reference can satisfy the {@code NOT NULL} attribution the
+     * POS-only order model requires. {@code @DataJpaTest} rolls the transaction
+     * back after each test, so these fixture rows never accumulate.
+     */
+    private Store store;
+    private Employee employee;
+
+    @BeforeEach
+    void createAttributionFixture() {
+        Organization org = organizationRepository.save(new Organization("Payment IT Acme"));
+        Store s = new Store(null, "Downtown", "US", "CA", "Los Angeles",
+                "123 Main St", "90001", "America/Los_Angeles");
+        s.setOrganization(org);
+        store = storeRepository.save(s);
+        Employee e = new Employee("Ada");
+        e.setOrganization(org);
+        e.setEmail("ada-payit@example.com");
+        employee = employeeRepository.save(e);
+    }
+
+    /**
+     * Build a DINE_IN order in the given status carrying the fixture store and
+     * employee, as every persisted order must now.
+     */
+    private Order attributedOrder(OrderStatus status) {
+        Order order = new Order(status, DiningOption.DINE_IN, LocalDateTime.now());
+        order.setStore(store);
+        order.setEmployee(employee);
+        return order;
+    }
+
     @Test
     @DisplayName("V5 migration: payments table exists with correct schema")
     void paymentTableExists() {
         MenuItem product = productRepository.save(
                 new MenuItem("Payment MenuItem", "PAY-PROD-001", new BigDecimal("10.00"), true));
-        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.PENDING);
         order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -100,7 +146,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentCanBeSavedAndReloaded() {
         MenuItem product = productRepository.save(
                 new MenuItem("Reload MenuItem", "PAY-PROD-002", new BigDecimal("25.00"), true));
-        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.CONFIRMED);
         order.addLine(new OrderLine(product, 2, new BigDecimal("25.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -130,7 +176,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentRequiresExistingOrder() {
         MenuItem product = productRepository.save(
                 new MenuItem("FK MenuItem", "PAY-PROD-003", new BigDecimal("15.00"), true));
-        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.PENDING);
         order.addLine(new OrderLine(product, 1, new BigDecimal("15.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -155,7 +201,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentSupportsAllMethods() {
         MenuItem product = productRepository.save(
                 new MenuItem("Method MenuItem", "PAY-PROD-004", new BigDecimal("20.00"), true));
-        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.PENDING);
         order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -186,7 +232,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentSupportsAllStatuses() {
         MenuItem product = productRepository.save(
                 new MenuItem("Status MenuItem", "PAY-PROD-005", new BigDecimal("30.00"), true));
-        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.PENDING);
         order.addLine(new OrderLine(product, 1, new BigDecimal("30.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -224,7 +270,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentServiceRejectsZeroAmount() {
         MenuItem product = productRepository.save(
                 new MenuItem("Zero MenuItem", "PAY-PROD-006", new BigDecimal("10.00"), true));
-        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.PENDING);
         order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -243,7 +289,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentServiceRejectsNegativeAmount() {
         MenuItem product = productRepository.save(
                 new MenuItem("Neg MenuItem", "PAY-PROD-007", new BigDecimal("10.00"), true));
-        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.PENDING);
         order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -271,7 +317,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentServiceRejectsCancelledOrder() {
         MenuItem product = productRepository.save(
                 new MenuItem("Cancel MenuItem", "PAY-PROD-008", new BigDecimal("10.00"), true));
-        Order order = new Order(OrderStatus.CANCELLED, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.CANCELLED);
         order.addLine(new OrderLine(product, 1, new BigDecimal("10.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -290,7 +336,7 @@ class PaymentRepositoryIntegrationTest {
     void paymentServiceCreatesPendingPayment() {
         MenuItem product = productRepository.save(
                 new MenuItem("Valid MenuItem", "PAY-PROD-009", new BigDecimal("20.00"), true));
-        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.CONFIRMED);
         order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -316,7 +362,7 @@ class PaymentRepositoryIntegrationTest {
     void transitionStatusPendingToCompletedIsPersisted() {
         MenuItem product = productRepository.save(
                 new MenuItem("Trans MenuItem 1", "PAY-PROD-010", new BigDecimal("20.00"), true));
-        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.CONFIRMED);
         order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
         Order savedOrder = orderRepository.save(order);
 
@@ -341,7 +387,7 @@ class PaymentRepositoryIntegrationTest {
     void transitionStatusInvalidTransitionThrows() {
         MenuItem product = productRepository.save(
                 new MenuItem("Trans MenuItem 2", "PAY-PROD-011", new BigDecimal("20.00"), true));
-        Order order = new Order(OrderStatus.CONFIRMED, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = attributedOrder(OrderStatus.CONFIRMED);
         order.addLine(new OrderLine(product, 1, new BigDecimal("20.00")));
         Order savedOrder = orderRepository.save(order);
 
