@@ -68,6 +68,9 @@ Endpoints (all under `/api/v1`):
 | POST | `/pos/orders` | `Authorization: Bearer <token>` | Create an order from `{ diningOption, lines: [{ productId, quantity }] }`. Returns `201` with the order plus `storeId`/`employeeId` **derived from the session** (never supplied by the client). |
 | GET | `/pos/orders/{id}` | `Authorization: Bearer <token>` | Return the order, only if it belongs to the session's store. Missing and other-store orders both return the same `404`. |
 | PATCH | `/pos/orders/{id}/status` | `Authorization: Bearer <token>` | Transition the order's status, only if it belongs to the session's store. Same `404` scoping; existing transition rules apply. |
+| POST | `/pos/payments` | `Authorization: Bearer <token>` | Create a payment from `{ orderId, amount, method }` for an order owned by the session's store. Returns `201`. A missing or other-store order both return the same `404`. |
+| GET | `/pos/payments/{id}` | `Authorization: Bearer <token>` | Return the payment, only if its order belongs to the session's store. Missing and other-store payments both return the same `404`. |
+| PATCH | `/pos/payments/{id}/status` | `Authorization: Bearer <token>` | Transition the payment's status (`PENDING -> COMPLETED/FAILED`, `COMPLETED -> REFUNDED`), only if its order belongs to the session's store. Same `404` scoping. |
 
 Security notes:
 
@@ -87,8 +90,17 @@ Security notes:
   The ownership check and the status update run in one transaction.
 - The legacy unauthenticated `/api/v1/orders` endpoints have been **removed**:
   `/pos/orders` is the sole HTTP interface for creating, reading, and
-  transitioning orders. The other management endpoints (employee, store, menu,
-  payment) remain unauthenticated as before.
+  transitioning orders. Likewise the legacy `/api/v1/payments` endpoints have
+  been **removed** and replaced by `/pos/payments`, the sole payment interface.
+  POS payment ownership is enforced through the payment's order (a payment has no
+  store column of its own): creation resolves the order with the same
+  store-scoped lookup used for orders (a missing or foreign order is refused
+  identically), and retrieval/status updates verify the order's store before
+  reading or writing. Payment rules are unchanged (positive amount, no payment
+  for a cancelled order, the `PENDING/COMPLETED/FAILED/REFUNDED` transition
+  graph); no order-total matching or duplicate-payment restriction is added. The
+  other management endpoints (employee, store, menu) remain unauthenticated as
+  before.
 
 Configuration (see `app/src/main/resources/application.properties`, all
 overridable via environment variables):

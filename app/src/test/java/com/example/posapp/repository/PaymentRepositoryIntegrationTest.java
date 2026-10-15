@@ -29,8 +29,10 @@ import com.example.posapp.entity.PaymentMethod;
 import com.example.posapp.entity.PaymentStatus;
 import com.example.posapp.entity.MenuItem;
 import com.example.posapp.entity.Store;
+import com.example.posapp.exception.OrderNotFoundException;
 import com.example.posapp.exception.PaymentNotFoundException;
 import com.example.posapp.exception.PaymentValidationException;
+import com.example.posapp.service.OrderService;
 import com.example.posapp.service.PaymentService;
 
 /**
@@ -40,7 +42,7 @@ import com.example.posapp.service.PaymentService;
  */
 @DataJpaTest
 @Testcontainers
-@Import(PaymentService.class)
+@Import({PaymentService.class, OrderService.class})
 class PaymentRepositoryIntegrationTest {
 
     @Container
@@ -275,7 +277,7 @@ class PaymentRepositoryIntegrationTest {
         Order savedOrder = orderRepository.save(order);
 
         assertThatThrownBy(() ->
-                paymentService.createPayment(savedOrder.getId(), BigDecimal.ZERO, PaymentMethod.CARD))
+                paymentService.createPayment(savedOrder.getId(), BigDecimal.ZERO, PaymentMethod.CARD, store.getId()))
                 .isInstanceOf(PaymentValidationException.class)
                 .hasMessageContaining("Payment amount must be greater than zero");
 
@@ -294,7 +296,7 @@ class PaymentRepositoryIntegrationTest {
         Order savedOrder = orderRepository.save(order);
 
         assertThatThrownBy(() ->
-                paymentService.createPayment(savedOrder.getId(), new BigDecimal("-5.00"), PaymentMethod.CARD))
+                paymentService.createPayment(savedOrder.getId(), new BigDecimal("-5.00"), PaymentMethod.CARD, store.getId()))
                 .isInstanceOf(PaymentValidationException.class)
                 .hasMessageContaining("Payment amount must be greater than zero");
 
@@ -307,8 +309,8 @@ class PaymentRepositoryIntegrationTest {
     @DisplayName("PaymentService.createPayment: rejects missing order against real DB")
     void paymentServiceRejectsMissingOrder() {
         assertThatThrownBy(() ->
-                paymentService.createPayment(999L, new BigDecimal("10.00"), PaymentMethod.CARD))
-                .isInstanceOf(PaymentValidationException.class)
+                paymentService.createPayment(999L, new BigDecimal("10.00"), PaymentMethod.CARD, store.getId()))
+                .isInstanceOf(OrderNotFoundException.class)
                 .hasMessageContaining("Order not found: 999");
     }
 
@@ -322,7 +324,7 @@ class PaymentRepositoryIntegrationTest {
         Order savedOrder = orderRepository.save(order);
 
         assertThatThrownBy(() ->
-                paymentService.createPayment(savedOrder.getId(), new BigDecimal("10.00"), PaymentMethod.CARD))
+                paymentService.createPayment(savedOrder.getId(), new BigDecimal("10.00"), PaymentMethod.CARD, store.getId()))
                 .isInstanceOf(PaymentValidationException.class)
                 .hasMessageContaining("Cannot create payment for a cancelled order");
 
@@ -341,7 +343,7 @@ class PaymentRepositoryIntegrationTest {
         Order savedOrder = orderRepository.save(order);
 
         Payment payment = paymentService.createPayment(
-                savedOrder.getId(), new BigDecimal("20.00"), PaymentMethod.CARD);
+                savedOrder.getId(), new BigDecimal("20.00"), PaymentMethod.CARD, store.getId());
 
         assertThat(payment.getId()).isNotNull();
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
@@ -367,10 +369,10 @@ class PaymentRepositoryIntegrationTest {
         Order savedOrder = orderRepository.save(order);
 
         Payment payment = paymentService.createPayment(
-                savedOrder.getId(), new BigDecimal("20.00"), PaymentMethod.CARD);
+                savedOrder.getId(), new BigDecimal("20.00"), PaymentMethod.CARD, store.getId());
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
 
-        Payment transitioned = paymentService.transitionStatus(payment.getId(), PaymentStatus.COMPLETED);
+        Payment transitioned = paymentService.transitionStatus(payment.getId(), store.getId(), PaymentStatus.COMPLETED);
         assertThat(transitioned.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
 
         Payment reloaded = paymentRepository.findById(payment.getId()).orElseThrow();
@@ -392,10 +394,10 @@ class PaymentRepositoryIntegrationTest {
         Order savedOrder = orderRepository.save(order);
 
         Payment payment = paymentService.createPayment(
-                savedOrder.getId(), new BigDecimal("20.00"), PaymentMethod.CARD);
+                savedOrder.getId(), new BigDecimal("20.00"), PaymentMethod.CARD, store.getId());
 
         assertThatThrownBy(() ->
-                paymentService.transitionStatus(payment.getId(), PaymentStatus.REFUNDED))
+                paymentService.transitionStatus(payment.getId(), store.getId(), PaymentStatus.REFUNDED))
                 .isInstanceOf(PaymentValidationException.class)
                 .hasMessageContaining("Cannot transition from PENDING to REFUNDED");
 
@@ -409,7 +411,7 @@ class PaymentRepositoryIntegrationTest {
     @DisplayName("PaymentService.transitionStatus: missing payment throws PaymentNotFoundException")
     void transitionStatusMissingPaymentThrowsNotFound() {
         assertThatThrownBy(() ->
-                paymentService.transitionStatus(999L, PaymentStatus.COMPLETED))
+                paymentService.transitionStatus(999L, store.getId(), PaymentStatus.COMPLETED))
                 .isInstanceOf(PaymentNotFoundException.class)
                 .hasMessageContaining("Payment not found: 999");
     }
