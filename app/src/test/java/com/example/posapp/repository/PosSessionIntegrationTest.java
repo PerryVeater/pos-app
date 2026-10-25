@@ -237,6 +237,42 @@ class PosSessionIntegrationTest {
         assertThat(storeRepository.findById(fx.store.getId())).isPresent();
     }
 
+    @Test
+    @DisplayName("a store full of PIN-carrying employees resolves each PIN to exactly its owner")
+    void resolvesClaimAmongManyEmployeesAtOneStore() {
+        Organization org = newOrg("POS-SESSION-MANY Acme");
+        Store store = newStore(org, "Downtown");
+        String[] pins = {"1001", "1002", "1003", "1004", "1005", "1006"};
+        Employee[] staff = new Employee[pins.length];
+        for (int i = 0; i < pins.length; i++) {
+            staff[i] = newEmployee(org, "Many Employee " + i, true);
+            assignmentService.assignEmployeeToStore(staff[i].getId(), store.getId());
+            pinService.setPin(staff[i].getId(), pins[i]);
+        }
+        // A seventh employee holds a PIN, but only at a different store.
+        Employee elsewhere = newEmployee(org, "Elsewhere Ada", true);
+        Store otherStore = newStore(org, "Airport");
+        assignmentService.assignEmployeeToStore(elsewhere.getId(), otherStore.getId());
+        pinService.setPin(elsewhere.getId(), "1007");
+
+        // Headcount at the store never changes the answer: one claim row
+        // matches, and it carries the right employee.
+        for (int i = 0; i < pins.length; i++) {
+            PosAuthenticateResponse auth = authenticationService.authenticate(
+                    store.getId(), pins[i], "many-" + i);
+            assertThat(auth.employeeId()).isEqualTo(staff[i].getId());
+        }
+
+        // A PIN that is valid elsewhere is not valid here: the lookup is
+        // scoped by store, never a global fingerprint search.
+        assertThatThrownBy(() -> authenticationService.authenticate(
+                store.getId(), "1007", "many-elsewhere"))
+                .isInstanceOf(PosAuthFailedException.class);
+        assertThatThrownBy(() -> authenticationService.authenticate(
+                otherStore.getId(), "1001", "many-other"))
+                .isInstanceOf(PosAuthFailedException.class);
+    }
+
     // --- fixtures ---
 
     private record Fixture(Organization organization, Employee employee, Store store) {
