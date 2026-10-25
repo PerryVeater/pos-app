@@ -14,6 +14,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 /**
  * Represents a payment for an {@link Order}.
@@ -29,6 +30,17 @@ public class Payment {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /**
+     * Optimistic-locking counter (Flyway V23). A payment status moves
+     * PENDING -> COMPLETED/FAILED and COMPLETED -> REFUNDED, and two terminals
+     * can race those moves; the version makes the loser fail instead of
+     * overwriting the winner. Mapped as a primitive so a new payment starts at
+     * zero without a null check anywhere.
+     */
+    @Version
+    @Column(nullable = false)
+    private long version;
 
     @ManyToOne(optional = false)
     @JoinColumn(name = "order_id", nullable = false,
@@ -73,6 +85,14 @@ public class Payment {
 
     public Long getId() {
         return id;
+    }
+
+    /**
+     * Get the optimistic-locking version of the payment.
+     * @return the version, zero for a payment that has never been updated
+     */
+    public long getVersion() {
+        return version;
     }
 
     public void setId(Long id) {

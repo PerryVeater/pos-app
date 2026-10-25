@@ -19,6 +19,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 /**
  * Entity class representing an order in the Point-of-Sale (POS) system.
@@ -40,6 +41,7 @@ import jakarta.persistence.Table;
  *   <li>{@code employee} - The creating employee, always present and derived
  *       from the authenticated POS session (required).</li>
  *   <li>{@code lines} - Line items belonging to this order.</li>
+ *   <li>{@code version} - Optimistic-locking counter, bumped on every update.</li>
  * </ul>
  * </p>
  */
@@ -50,6 +52,17 @@ public class Order {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /**
+     * Optimistic-locking counter (Flyway V23). Hibernate increments it on every
+     * update and adds {@code AND version = ?} to the {@code UPDATE}, so two
+     * requests that both read the same order cannot both write it: the second
+     * fails instead of silently overwriting the first. Mapped as a primitive so
+     * a new (unsaved) order starts at zero without a null check anywhere.
+     */
+    @Version
+    @Column(nullable = false)
+    private long version;
 
     /**
      * Lifecycle state of the order. Stored as a {@code VARCHAR(16)} column
@@ -130,6 +143,12 @@ public class Order {
      * @return the ID of the order
      */
     public Long getId() { return id; }
+
+    /**
+     * Get the optimistic-locking version of the order.
+     * @return the version, zero for an order that has never been updated
+     */
+    public long getVersion() { return version; }
 
     /**
      * Get the status of the order.

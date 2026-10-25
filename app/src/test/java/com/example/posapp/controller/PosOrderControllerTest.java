@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -224,6 +225,22 @@ class PosOrderControllerTest {
                                 new OrderStatusUpdateRequest(OrderStatus.CONFIRMED))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.title").value("Order not found"));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/v1/pos/orders/{id}/status: a lost update returns 409, not 500")
+    void patchStatusConcurrentUpdateReturns409() throws Exception {
+        when(posOrderService.updateStatus(eq("Bearer tok"), anyLong(), any()))
+                .thenThrow(new ObjectOptimisticLockingFailureException(Order.class, 5L));
+
+        mockMvc.perform(patch("/api/v1/pos/orders/5/status")
+                        .header("Authorization", "Bearer tok")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new OrderStatusUpdateRequest(OrderStatus.CONFIRMED))))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Conflicting update"));
     }
 
     @Test

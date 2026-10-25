@@ -39,7 +39,7 @@ import com.example.posapp.service.PosSessionService;
 
 /**
  * End-to-end integration tests for the authenticated, store-scoped POS order
- * lifecycle against a real PostgreSQL over the Flyway V18/V22 schema (Hibernate
+ * lifecycle against a real PostgreSQL over the Flyway V18/V23 schema (Hibernate
  * {@code ddl-auto=validate} re-confirms the now-{@code NOT NULL}
  * {@code orders.store_id} and {@code orders.employee_id} columns on context
  * boot). These cover what the isolated unit and web tests cannot: attribution

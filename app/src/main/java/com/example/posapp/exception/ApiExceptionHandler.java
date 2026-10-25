@@ -3,6 +3,7 @@ package com.example.posapp.exception;
 import java.util.stream.Collectors;
 
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -286,6 +287,27 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleIllegalArgument(IllegalArgumentException ex) {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage());
+    }
+
+    /**
+     * Map a lost update to HTTP 409 Conflict.
+     * <p>
+     * An order or payment carries an optimistic-locking version (Flyway V23),
+     * so a request that read a row and then found it changed underneath must
+     * not overwrite it. Covers {@code ObjectOptimisticLockingFailureException}
+     * and the wider {@code OptimisticLockingFailureException} family. The
+     * detail names no entity, id, or column: the caller's only correct move is
+     * to reload and retry, and the response should not become a way to probe
+     * what other terminals are doing.
+     * </p>
+     * @param ex the exception raised by the persistence layer at flush or commit
+     * @return a problem detail describing the conflict
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ProblemDetail handleOptimisticLockingFailure(OptimisticLockingFailureException ex) {
+        return problem(HttpStatus.CONFLICT, "Conflicting update",
+                "The record was changed by another request after it was read."
+                        + " Reload it and retry.");
     }
 
     /**

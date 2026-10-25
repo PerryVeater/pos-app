@@ -128,7 +128,7 @@ class OrderRepositoryIntegrationTest {
 
 
     @Test
-    @DisplayName("context boots: Flyway records V1–V22 as successful and Hibernate validate passed")
+    @DisplayName("context boots: Flyway records V1–V23 as successful and Hibernate validate passed")
     void contextBootsWithMigratedSchema() {
         // Reaching this point proves the context started, which means Flyway
         // migrated first and ddl-auto=validate accepted the schema. Verify the
@@ -136,7 +136,7 @@ class OrderRepositoryIntegrationTest {
         List<Map<String, Object>> history = jdbcTemplate.queryForList(
                 "SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank");
 
-        assertThat(history).hasSize(22);
+        assertThat(history).hasSize(23);
         assertThat(history.get(0))
                 .containsEntry("version", "1")
                 .containsEntry("description", "create product table")
@@ -225,10 +225,14 @@ class OrderRepositoryIntegrationTest {
                 .containsEntry("version", "22")
                 .containsEntry("description", "add order query indexes")
                 .containsEntry("success", true);
+        assertThat(history.get(22))
+                .containsEntry("version", "23")
+                .containsEntry("description", "add optimistic locking")
+                .containsEntry("success", true);
     }
 
     @Test
-    @DisplayName("orders table matches the JPA model: id, status varchar(16), dining_option varchar(20), created_at timestamp, non-null store_id/employee_id")
+    @DisplayName("orders table matches the JPA model: id, version, status varchar(16), dining_option varchar(20), created_at timestamp, non-null store_id/employee_id")
     void ordersTableMatchesJpaModel() {
         List<Map<String, Object>> columns = jdbcTemplate.queryForList(
                 "SELECT column_name, data_type, is_nullable, character_maximum_length"
@@ -238,10 +242,14 @@ class OrderRepositoryIntegrationTest {
         assertThat(columns)
                 .extracting(column -> column.get("column_name"))
                 .containsExactly("id", "status", "created_at", "dining_option",
-                        "store_id", "employee_id");
+                        "store_id", "employee_id", "version");
         assertThat(columns.get(0))
                 .containsEntry("column_name", "id")
                 .containsEntry("data_type", "bigint");
+        assertThat(columns.get(6))
+                .containsEntry("column_name", "version")
+                .containsEntry("data_type", "bigint")
+                .containsEntry("is_nullable", "NO");
         assertThat(columns.get(1))
                 .containsEntry("column_name", "status")
                 .containsEntry("data_type", "character varying")
