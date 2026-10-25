@@ -36,9 +36,10 @@ import com.example.posapp.repository.StoreRepository;
  * Unit tests for {@link PosAuthenticationService} covering the happy path,
  * every failure mode that must collapse to one generic error, the
  * rate-limit-before-credential ordering, the rule that a PIN is used
- * verbatim (leading zeros preserved), and the constant-work property: an
+ * verbatim (leading zeros preserved), the constant-work property: an
  * attempt costs exactly one PIN verification whether or not anything at the
- * store claims the submitted PIN.
+ * store claims the submitted PIN, and the telemetry attribution rule - a
+ * failure names an employee only when a claim did.
  */
 @ExtendWith(MockitoExtension.class)
 class PosAuthenticationServiceTest {
@@ -58,6 +59,8 @@ class PosAuthenticationServiceTest {
     private PinHasher pinHasher;
     @Mock
     private PosAuthRateLimiter rateLimiter;
+    @Mock
+    private PosAuthTelemetry telemetry;
     @Mock
     private PosSessionService sessionService;
 
@@ -84,6 +87,8 @@ class PosAuthenticationServiceTest {
         verify(pinHasher, times(1)).verify("0421", "HASH");
         verify(rateLimiter).recordSuccess(STORE_ID, CLIENT);
         verify(rateLimiter, never()).recordFailure(anyLong(), anyString());
+        // A success is not a telemetry event: there is nothing to alert on.
+        verifyNoInteractions(telemetry);
     }
 
     @Test
@@ -200,7 +205,76 @@ class PosAuthenticationServiceTest {
                 .isInstanceOf(PosAuthRateLimitedException.class);
 
         verifyNoInteractions(storeRepository, scopeRepository,
-                credentialRepository, pinHasher, sessionService);
+                credentialRepository, pinHasher, telemetry, sessionService);
+    }
+
+    // --- telemetry attribution ---
+
+    @Test
+    @DisplayName("a wrong PIN is attributed to the employee the claim named")
+    void wrongPinIsAttributedToTheClaimedEmployee() {
+        stubStore(store(true));
+        stubClaim(employee(true), "9999");
+        when(credentialRepository.findByEmployeeId(EMPLOYEE_ID))
+                .thenReturn(Optional.of(credential("HASH")));
+        when(pinHasher.verify("9999", "HASH")).thenReturn(false);
+
+        assertThatThrownBy(() -> service.authenticate(STORE_ID, "9999", CLIENT))
+                .isInstanceOf(PosAuthFailedException.class);
+
+        // A claim matched, so the server knows whose PIN was tried.
+        verify(telemetry).failedAttempt(STORE_ID, EMPLOYEE_ID, CLIENT, false);
+    }
+
+    @Test
+    @DisplayName("a PIN no claim matched is counted against the store, never against a person")
+    void unclaimedPinIsNotAttributedToAnybody() {
+        stubStore(store(true));
+        when(pinHasher.fingerprint("0421")).thenReturn("fp:nobody");
+        when(scopeRepository.findByStoreIdAndPinFingerprint(STORE_ID, "fp:nobody"))
+                .thenReturn(Optional.empty());
+        when(pinHasher.hash(anyString())).thenReturn(DECOY_HASH);
+
+        assertThatThrownBy(() -> service.authenticate(STORE_ID, "0421", CLIENT))
+                .isInstanceOf(PosAuthFailedException.class);
+
+        verify(telemetry).failedAttempt(STORE_ID, null, CLIENT, false);
+    }
+
+    @Test
+    @DisplayName("the claim names the employee even when the account is inactive; a store failure names none")
+    void claimNamesTheEmployeeAndStoreFailureNamesNone() {
+        stubStore(store(true));
+        stubClaim(employee(false), "0421");
+        when(credentialRepository.findByEmployeeId(EMPLOYEE_ID))
+                .thenReturn(Optional.of(credential("HASH")));
+        when(pinHasher.verify("0421", "HASH")).thenReturn(true);
+        assertThatThrownBy(() -> service.authenticate(STORE_ID, "0421", CLIENT))
+                .isInstanceOf(PosAuthFailedException.class);
+        // The PIN was right but the account is not usable; the claim still
+        // named the employee, so the attempt is attributable.
+        verify(telemetry).failedAttempt(STORE_ID, EMPLOYEE_ID, CLIENT, false);
+
+        when(storeRepository.findById(STORE_ID)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.authenticate(STORE_ID, "0421", "203.0.113.20"))
+                .isInstanceOf(PosAuthFailedException.class);
+        verify(telemetry).failedAttempt(STORE_ID, null, "203.0.113.20", false);
+    }
+
+    @Test
+    @DisplayName("the failure that begins a lockout is the one reported as a lockout")
+    void lockoutEntryIsTelemetried() {
+        stubStore(store(true));
+        when(pinHasher.fingerprint("0421")).thenReturn("fp:nobody");
+        when(scopeRepository.findByStoreIdAndPinFingerprint(STORE_ID, "fp:nobody"))
+                .thenReturn(Optional.empty());
+        when(pinHasher.hash(anyString())).thenReturn(DECOY_HASH);
+        when(rateLimiter.recordFailure(STORE_ID, CLIENT)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.authenticate(STORE_ID, "0421", CLIENT))
+                .isInstanceOf(PosAuthFailedException.class);
+
+        verify(telemetry).failedAttempt(STORE_ID, null, CLIENT, true);
     }
 
     // --- fixtures ---

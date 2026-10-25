@@ -43,6 +43,30 @@ class PosAuthRateLimiterTest {
     }
 
     @Test
+    @DisplayName("only the failure that begins a lockout reports the transition")
+    void lockoutEntryIsReportedOnce() {
+        assertThat(limiter.recordFailure(STORE, CLIENT)).as("1st").isFalse();
+        assertThat(limiter.recordFailure(STORE, CLIENT)).as("2nd").isFalse();
+        assertThat(limiter.recordFailure(STORE, CLIENT)).as("3rd begins the lockout").isTrue();
+        // Refusals while the lockout holds must not re-announce it, or a
+        // client hammering the endpoint would flood the alert channel.
+        assertThat(limiter.recordFailure(STORE, CLIENT)).as("4th, already locked").isFalse();
+    }
+
+    @Test
+    @DisplayName("a new lockout after the cooldown lapsed is reported again")
+    void lockoutAfterCooldownIsReportedAgain() {
+        for (int i = 0; i < 3; i++) {
+            limiter.recordFailure(STORE, CLIENT);
+        }
+        now.set(now.get() + Duration.ofMinutes(15).toMillis() + 1);
+
+        limiter.recordFailure(STORE, CLIENT);
+        limiter.recordFailure(STORE, CLIENT);
+        assertThat(limiter.recordFailure(STORE, CLIENT)).as("new lockout").isTrue();
+    }
+
+    @Test
     @DisplayName("the lockout lifts once the cooldown elapses")
     void lockoutExpiresAfterCooldown() {
         for (int i = 0; i < 3; i++) {

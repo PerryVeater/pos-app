@@ -45,6 +45,14 @@ import com.example.posapp.repository.StoreRepository;
  * its own transaction, mirroring the existing non-transactional orchestrator
  * convention.
  * </p>
+ * <p>
+ * Failures are reported to {@link PosAuthTelemetry} with only the IDs the
+ * lookup actually established. When the fingerprint matched a claim, that
+ * claim named an employee, so the failure is attributable to them and the
+ * telemetry says so; when it matched nothing, the attempt is counted against
+ * the store alone. Guessing who was targeted in the second case would turn
+ * "somebody is trying PINs" into a false accusation against a named person.
+ * </p>
  */
 @Service
 public class PosAuthenticationService {
@@ -54,6 +62,7 @@ public class PosAuthenticationService {
     private final EmployeePinCredentialRepository credentialRepository;
     private final PinHasher pinHasher;
     private final PosAuthRateLimiter rateLimiter;
+    private final PosAuthTelemetry telemetry;
     private final PosSessionService sessionService;
 
     /**
@@ -74,6 +83,7 @@ public class PosAuthenticationService {
      * @param credentialRepository PIN credential reads for the matched employee
      * @param pinHasher the PIN verifier
      * @param rateLimiter the per-store/client attempt limiter
+     * @param telemetry the failure counters and lockout line
      * @param sessionService the session issuer
      */
     public PosAuthenticationService(StoreRepository storeRepository,
@@ -81,12 +91,14 @@ public class PosAuthenticationService {
                                     EmployeePinCredentialRepository credentialRepository,
                                     PinHasher pinHasher,
                                     PosAuthRateLimiter rateLimiter,
+                                    PosAuthTelemetry telemetry,
                                     PosSessionService sessionService) {
         this.storeRepository = storeRepository;
         this.scopeRepository = scopeRepository;
         this.credentialRepository = credentialRepository;
         this.pinHasher = pinHasher;
         this.rateLimiter = rateLimiter;
+        this.telemetry = telemetry;
         this.sessionService = sessionService;
     }
 
@@ -107,23 +119,41 @@ public class PosAuthenticationService {
         // flag used for the gate and the name used for the response, so no
         // uninitialized proxy is ever handed to the session writer.
         Store store = storeRepository.findById(storeId).filter(Store::isActive).orElse(null);
-        Employee authenticated = store == null ? null : matchAssignedEmployee(storeId, pin);
-        if (authenticated == null) {
+        PinAttempt attempt = store == null ? PinAttempt.NO_CLAIM : matchAssignedEmployee(storeId, pin);
+        if (attempt.employee() == null) {
             // A missing/inactive store and every credential mismatch land
-            // here, so the failure is indistinguishable to the caller.
-            rateLimiter.recordFailure(storeId, clientKey);
+            // here, so the failure is indistinguishable to the caller. The
+            // telemetry is told what the lookup established and nothing more.
+            boolean lockoutEntered = rateLimiter.recordFailure(storeId, clientKey);
+            telemetry.failedAttempt(storeId, attempt.identifiedEmployeeId(), clientKey, lockoutEntered);
             throw new PosAuthFailedException();
         }
         rateLimiter.recordSuccess(storeId, clientKey);
-        return sessionService.startSession(authenticated, store);
+        return sessionService.startSession(attempt.employee(), store);
     }
 
     /**
-     * Resolve the single employee whose PIN claim at the store matches the
-     * submitted PIN, or {@code null} when no claim matches, the claim's
-     * employee is inactive, or the stored credential is missing. The
-     * returned employee is initialized (name and active flag), so the caller
-     * can build a response without lazy access.
+     * What the credential lookup established: the authenticated employee,
+     * plus the employee the submitted PIN belonged to when a claim matched.
+     * The second value survives a failed verification - a claim that named an
+     * employee tells us whose PIN was tried, even though the attempt failed -
+     * and is {@code null} when nothing claimed the PIN, because then nobody
+     * has been identified.
+     * @param employee the authenticated employee, or {@code null}
+     * @param identifiedEmployeeId the employee named by the claim, or
+     *        {@code null} when no claim matched
+     */
+    private record PinAttempt(Employee employee, Long identifiedEmployeeId) {
+
+        /** No claim matched: nothing authenticated and nobody identified. */
+        static final PinAttempt NO_CLAIM = new PinAttempt(null, null);
+    }
+
+    /**
+     * Resolve the employee whose PIN claim at the store matches the
+     * submitted PIN, and record which employee the attempt was against even
+     * when it fails. The returned employee is initialized (name and active
+     * flag), so the caller can build a response without lazy access.
      * <p>
      * Exactly one call to {@link PinHasher#verify} happens on every path,
      * including the miss path where it runs against a decoy hash. That is
@@ -132,23 +162,25 @@ public class PosAuthenticationService {
      * </p>
      * @param storeId the store being authenticated at
      * @param pin the submitted PIN
-     * @return the matching active employee, or {@code null}
+     * @return the matching active employee plus the identified employee,
+     *         where one or both may be absent
      */
-    private Employee matchAssignedEmployee(Long storeId, String pin) {
+    private PinAttempt matchAssignedEmployee(Long storeId, String pin) {
         String fingerprint = pinHasher.fingerprint(pin);
         EmployeePinStoreScope claim = scopeRepository
                 .findByStoreIdAndPinFingerprint(storeId, fingerprint)
                 .orElse(null);
         Employee employee = claim == null ? null : claim.getEmployee();
+        Long identifiedEmployeeId = employee == null ? null : employee.getId();
         String storedHash = employee == null ? costEqualisingHash() : credentialHash(employee);
         // The submitted PIN is compared with the decoy on a miss, so the
         // decoy's own PIN would "verify" there; the employee check below is
         // what keeps that a failure.
         boolean pinMatches = pinHasher.verify(pin, storedHash);
         if (employee == null || !employee.isActive() || !pinMatches) {
-            return null;
+            return new PinAttempt(null, identifiedEmployeeId);
         }
-        return employee;
+        return new PinAttempt(employee, identifiedEmployeeId);
     }
 
     /**

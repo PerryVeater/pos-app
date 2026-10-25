@@ -3,6 +3,7 @@ package com.example.posapp.service;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -91,12 +92,19 @@ public class PosAuthRateLimiter {
      * configured attempt limit is reached.
      * @param storeId the store being authenticated against
      * @param clientKey the resolved client identifier
+     * @return {@code true} only for the failure that began a lockout, so a
+     *         caller can report the transition once instead of once per
+     *         refused attempt afterwards
      */
-    public void recordFailure(Long storeId, String clientKey) {
+    public boolean recordFailure(Long storeId, String clientKey) {
         long now = clock.getAsLong();
         long windowMillis = properties.window().toMillis();
         long cooldownMillis = properties.cooldown().toMillis();
-        buckets.compute(key(storeId, clientKey), (k, existing) -> {
+        // compute() may retry under contention, so the previous state is
+        // captured by the last invocation rather than accumulated.
+        AtomicReference<Bucket> previous = new AtomicReference<>();
+        Bucket updated = buckets.compute(key(storeId, clientKey), (k, existing) -> {
+            previous.set(existing);
             if (existing == null) {
                 existing = new Bucket(0, now, 0L, now);
             }
@@ -122,6 +130,9 @@ public class PosAuthRateLimiter {
             return new Bucket(failures, windowStart, lockoutUntil, now);
         });
         enforceCapacity(now);
+        Bucket before = previous.get();
+        boolean wasOpen = before == null || now >= before.lockoutUntilEpochMs();
+        return wasOpen && now < updated.lockoutUntilEpochMs();
     }
 
     /**

@@ -87,6 +87,15 @@ PIN endpoints and receive a temporary, store-scoped bearer session
 store, holding a PIN that verifies against their stored credential, are
 accepted.
 
+A session ends at its absolute expiry (`pos.session.ttl`, 8h by default), on
+logout, and whenever the credential or entitlement behind it changes: a PIN
+rotation or removal, the employee being deactivated, or their assignment to
+that store being removed. An employee holds at most
+`pos.session.max-per-employee` (3) live sessions - the oldest is revoked when
+a new login would exceed it, so a terminal that never logged out cannot keep
+one alive forever - and a background job (`PosSessionRetentionJob`) deletes
+rows whose expiry is older than `pos.session.retention` (7 days).
+
 Endpoints (all under `/api/v1`):
 
 | Method | Path | Auth | Purpose |
@@ -111,6 +120,13 @@ Security notes:
   it is never stored, logged, or returned. Authentication failures are
   **generic** (`401 "Invalid store or PIN."`) and do not reveal whether the
   store, employee, assignment, or credential exists.
+- Repeated failures at a `(store, client)` pair lock that client out for a
+  cooldown, and the moment a lockout begins is recorded once as a structured
+  `WARN` line: `event=pos_auth_lockout storeId=… client=… storeFailures=…`,
+  plus `identifiedEmployeeId`/`employeeFailures` when the submitted PIN
+  matched a claim. A PIN that matches nobody is counted against the store
+  alone, because the server has not identified anybody. The line never
+  contains the PIN or the fingerprint derived from it.
 - The POS order endpoints reuse `PosSessionService.currentSession` for the
   bearer check (no duplicated token logic) and confine retrieval/status updates
   to the session's store. Every order records the session's store and employee
