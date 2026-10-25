@@ -1,6 +1,7 @@
 package com.example.posapp.service;
 
 import java.time.Instant;
+import java.util.List;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,7 +21,12 @@ import com.example.posapp.repository.PosSessionRepository;
  * <p>
  * Issuance is atomic and credential-free: a fresh CSPRNG token is generated,
  * only its SHA-256 hash is persisted, and the raw token is returned once in
- * the response. Resolution re-derives the hash from whatever the client
+ * the response. It is also bounded: before a new session is written, the
+ * employee's oldest live sessions are revoked so at most
+ * {@link SessionProperties#maxPerEmployee()} remain. A terminal that
+ * crashed, or a tablet somebody carried off, cannot accumulate an endless
+ * series of usable sessions, and the newest login is always the one that
+ * survives. Resolution re-derives the hash from whatever the client
  * presents and looks the session up by it, then rejects anything unknown,
  * expired, or revoked through the single generic
  * {@link PosSessionInvalidException} so no probe can distinguish those
@@ -30,9 +36,11 @@ import com.example.posapp.repository.PosSessionRepository;
  * </p>
  * <p>
  * The {@link #startSession(Employee, Store)} and {@link #logout(String)}
- * methods run in a read-write transaction; {@link #currentSession(String)}
- * runs in a read-only one and materializes the employee/store names into the
- * response DTO inside the transaction so no lazy proxy escapes it.
+ * methods run in a read-write transaction, so the revocation of over-cap
+ * sessions commits with the insert that displaced them;
+ * {@link #currentSession(String)} runs in a read-only one and materializes
+ * the employee/store names into the response DTO inside the transaction so
+ * no lazy proxy escapes it.
  * </p>
  */
 @Service
@@ -61,19 +69,44 @@ public class PosSessionService {
 
     /**
      * Issue a store-scoped session for an authenticated employee, returning
-     * the one-time raw token plus non-sensitive session context.
+     * the one-time raw token plus non-sensitive session context. Any live
+     * sessions beyond the per-employee cap are revoked first, so the cap
+     * holds once this one is written.
      * @param employee the authenticated employee
      * @param store the store the session is scoped to
      * @return the authentication response carrying the raw bearer token
      */
     @Transactional
     public PosAuthenticateResponse startSession(Employee employee, Store store) {
-        String rawToken = tokenService.generateToken();
         Instant now = Instant.now();
+        revokeSessionsOverCap(employee, now);
+        String rawToken = tokenService.generateToken();
         Instant expiresAt = now.plus(sessionProperties.ttl());
         PosSession session = sessionRepository.saveAndFlush(
                 new PosSession(employee, store, tokenService.hash(rawToken), now, expiresAt));
         return PosAuthenticateResponse.of(session, rawToken);
+    }
+
+    /**
+     * Revoke the oldest live sessions of an employee so that only
+     * {@code maxPerEmployee - 1} survive to be joined by the session about
+     * to be issued. Oldest first, because the least recently used session
+     * is the terminal a person is least likely to still be standing at.
+     * <p>
+     * The entities are managed, so the revocations flush with the insert in
+     * the caller's transaction: either the new session exists and the old
+     * ones are revoked, or nothing changed.
+     * </p>
+     * @param employee the employee about to authenticate
+     * @param now the issuance instant used as the revocation stamp
+     */
+    private void revokeSessionsOverCap(Employee employee, Instant now) {
+        int keep = Math.max(1, sessionProperties.maxPerEmployee());
+        List<PosSession> live = sessionRepository.findLiveByEmployeeId(employee.getId(), now);
+        int excess = Math.max(0, live.size() - keep + 1);
+        for (int index = 0; index < excess; index++) {
+            live.get(index).setRevokedAt(now);
+        }
     }
 
     /**

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
@@ -26,9 +27,12 @@ import com.example.posapp.exception.PosAuthFailedException;
 import com.example.posapp.exception.PosAuthRateLimitedException;
 import com.example.posapp.exception.PosSessionInvalidException;
 import com.example.posapp.service.EmployeePinService;
+import com.example.posapp.service.EmployeeService;
 import com.example.posapp.service.EmployeeStoreAssignmentService;
 import com.example.posapp.service.PosAuthenticationService;
+import com.example.posapp.service.PosSessionPurger;
 import com.example.posapp.service.PosSessionService;
+import com.example.posapp.service.SessionProperties;
 
 /**
  * End-to-end integration tests for POS PIN authentication and bearer
@@ -37,8 +41,11 @@ import com.example.posapp.service.PosSessionService;
  * context boot). These cover what the isolated unit and web tests cannot:
  * issuance persisting only the token hash, the full authenticate → use →
  * logout lifecycle, expiry and revocation rejection against real rows, the
- * per-store/client rate limit actually blocking, and cascade cleanup of
- * sessions when the owning employee is removed.
+ * per-store/client rate limit actually blocking, cascade cleanup of
+ * sessions when the owning employee is removed, and the lifecycle rules
+ * that depend on real column values: revocation on PIN rotation,
+ * deactivation and assignment removal, the per-employee session cap, and
+ * the bounded purge of rows past the retention window.
  * <p>
  * The {@link com.example.posapp.service.PosAuthRateLimiter} is a shared,
  * process-local singleton for the whole context, so each scenario uses its
@@ -72,6 +79,12 @@ class PosSessionIntegrationTest {
     private PosAuthenticationService authenticationService;
     @Autowired
     private PosSessionService sessionService;
+    @Autowired
+    private EmployeeService employeeService;
+    @Autowired
+    private PosSessionPurger sessionPurger;
+    @Autowired
+    private SessionProperties sessionProperties;
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -271,6 +284,137 @@ class PosSessionIntegrationTest {
         assertThatThrownBy(() -> authenticationService.authenticate(
                 otherStore.getId(), "1001", "many-other"))
                 .isInstanceOf(PosAuthFailedException.class);
+    }
+
+    // --- revocation and retention ---
+
+    @Test
+    @DisplayName("rotating a PIN revokes the sessions issued under the old one")
+    void pinRotationRevokesSessions() {
+        Fixture fx = fixture(true, true, true);
+        pinService.setPin(fx.employee.getId(), "1234");
+        String issuedUnderOldPin = authenticationService
+                .authenticate(fx.store.getId(), "1234", "rotate-a").token();
+        // Prove the token is good before the rotation, so the failure below
+        // is attributable to the rotation and nothing else.
+        assertThat(sessionService.currentSession("Bearer " + issuedUnderOldPin).employeeId())
+                .isEqualTo(fx.employee.getId());
+
+        pinService.setPin(fx.employee.getId(), "5678");
+
+        // Whoever knew the old PIN may still be holding the token.
+        assertThatThrownBy(() -> sessionService.currentSession("Bearer " + issuedUnderOldPin))
+                .isInstanceOf(PosSessionInvalidException.class);
+        // The employee is not locked out: the new PIN issues a fresh session.
+        String issuedUnderNewPin = authenticationService
+                .authenticate(fx.store.getId(), "5678", "rotate-b").token();
+        assertThat(sessionService.currentSession("Bearer " + issuedUnderNewPin).employeeId())
+                .isEqualTo(fx.employee.getId());
+    }
+
+    @Test
+    @DisplayName("deactivating an employee revokes their live sessions")
+    void deactivationRevokesSessions() {
+        Fixture fx = fixture(true, true, true);
+        pinService.setPin(fx.employee.getId(), "2345");
+        String token = authenticationService
+                .authenticate(fx.store.getId(), "2345", "deact-a").token();
+
+        Employee deactivated = new Employee(fx.employee.getName());
+        deactivated.setActive(false);
+        employeeService.updateEmployee(fx.employee.getId(), deactivated, fx.organization.getId());
+
+        assertThatThrownBy(() -> sessionService.currentSession("Bearer " + token))
+                .isInstanceOf(PosSessionInvalidException.class);
+        // The same PIN no longer authenticates a new session either.
+        assertThatThrownBy(() -> authenticationService.authenticate(
+                fx.store.getId(), "2345", "deact-b"))
+                .isInstanceOf(PosAuthFailedException.class);
+    }
+
+    @Test
+    @DisplayName("removing a store assignment revokes that store's sessions only")
+    void assignmentRemovalRevokesOnlyThatStoresSessions() {
+        Fixture fx = fixture(true, true, true);
+        Store second = newStore(fx.organization, "Second Store");
+        assignmentService.assignEmployeeToStore(fx.employee.getId(), second.getId());
+        pinService.setPin(fx.employee.getId(), "3456");
+        String atFirst = authenticationService
+                .authenticate(fx.store.getId(), "3456", "assign-a").token();
+        String atSecond = authenticationService
+                .authenticate(second.getId(), "3456", "assign-b").token();
+
+        assignmentService.removeEmployeeFromStore(fx.employee.getId(), second.getId());
+
+        assertThatThrownBy(() -> sessionService.currentSession("Bearer " + atSecond))
+                .isInstanceOf(PosSessionInvalidException.class);
+        assertThat(sessionService.currentSession("Bearer " + atFirst).storeId())
+                .isEqualTo(fx.store.getId());
+        // And the removed store no longer accepts the PIN at all.
+        assertThatThrownBy(() -> authenticationService.authenticate(
+                second.getId(), "3456", "assign-c"))
+                .isInstanceOf(PosAuthFailedException.class);
+    }
+
+    @Test
+    @DisplayName("logging in beyond the per-employee cap revokes the oldest session")
+    void perEmployeeCapRevokesOldestSession() {
+        Fixture fx = fixture(true, true, true);
+        pinService.setPin(fx.employee.getId(), "4567");
+        int cap = sessionProperties.maxPerEmployee();
+        List<String> tokens = new ArrayList<>();
+        for (int attempt = 0; attempt <= cap; attempt++) {
+            tokens.add(authenticationService
+                    .authenticate(fx.store.getId(), "4567", "cap-" + attempt).token());
+        }
+
+        // The rows are kept for audit; only the oldest stops working.
+        assertThat(sessionRepository.count()).isEqualTo(cap + 1);
+        assertThatThrownBy(() -> sessionService.currentSession("Bearer " + tokens.get(0)))
+                .isInstanceOf(PosSessionInvalidException.class);
+        for (int index = 1; index < tokens.size(); index++) {
+            assertThat(sessionService.currentSession("Bearer " + tokens.get(index)).employeeId())
+                    .as("session %d of %d should still be live", index, tokens.size())
+                    .isEqualTo(fx.employee.getId());
+        }
+    }
+
+    @Test
+    @DisplayName("the purge skips rows inside the retention window and runs in bounded batches")
+    void purgeIsBoundedAndRespectsRetention() {
+        Fixture fx = fixture(true, true, true);
+        Store second = newStore(fx.organization, "Second Store");
+        assignmentService.assignEmployeeToStore(fx.employee.getId(), second.getId());
+        pinService.setPin(fx.employee.getId(), "6789");
+        authenticationService.authenticate(fx.store.getId(), "6789", "purge-a");
+        authenticationService.authenticate(fx.store.getId(), "6789", "purge-b");
+        String retained = authenticationService
+                .authenticate(second.getId(), "6789", "purge-c").token();
+
+        // Two rows expired long ago, one expired yesterday: all three reject
+        // the token, but only the first two are past the audit window.
+        jdbcTemplate.update("UPDATE pos_session SET expires_at = now() - interval '20 days'"
+                + " WHERE store_id = ?", fx.store.getId());
+        jdbcTemplate.update("UPDATE pos_session SET expires_at = now() - interval '1 day'"
+                + " WHERE store_id = ?", second.getId());
+        Instant cutoff = Instant.now().minus(sessionProperties.retention());
+
+        // A batch size of 1 removes exactly one row per transaction.
+        assertThat(sessionPurger.purgeBatch(cutoff, 1)).isEqualTo(1);
+        assertThat(sessionRepository.count()).isEqualTo(2);
+        assertThat(sessionPurger.purgeBatch(cutoff, 10)).isEqualTo(1);
+        assertThat(sessionRepository.count()).isEqualTo(1);
+
+        // The row inside the retention window survives, already rejected.
+        assertThat(sessionPurger.purgeBatch(cutoff, 10)).isZero();
+        assertThat(sessionRepository.count()).isEqualTo(1);
+        assertThatThrownBy(() -> sessionService.currentSession("Bearer " + retained))
+                .isInstanceOf(PosSessionInvalidException.class);
+
+        // Once the window has moved past it, the next run collects it.
+        assertThat(sessionPurger.purgeBatch(Instant.now(), 10)).isEqualTo(1);
+        assertThat(sessionRepository.count()).isZero();
+        assertThat(sessionPurger.purgeBatch(Instant.now(), 10)).isZero();
     }
 
     // --- fixtures ---

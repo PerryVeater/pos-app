@@ -64,6 +64,9 @@ class EmployeeStoreAssignmentServiceTest {
     @Mock
     private EmployeeStorePinWriter pinWriter;
 
+    @Mock
+    private PosSessionRevoker sessionRevoker;
+
     @InjectMocks
     private EmployeeStoreAssignmentService assignmentService;
 

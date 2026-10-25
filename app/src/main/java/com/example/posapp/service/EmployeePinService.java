@@ -1,5 +1,6 @@
 package com.example.posapp.service;
 
+import java.time.Instant;
 import java.util.regex.Pattern;
 
 import org.springframework.dao.DataIntegrityViolationException;
@@ -34,6 +35,13 @@ import com.example.posapp.repository.EmployeeRepository;
  * failures - every conflict becomes the same clean 400 a check-time
  * rejection would produce.
  * </p>
+ * <p>
+ * A successful write is followed by {@link PosSessionRevoker}: whoever knew
+ * the previous PIN may still be holding a bearer token, and a token is not a
+ * credential. The revocation runs after the PIN change commits, so a failure
+ * there is reported rather than swallowed - a session that should be dead is
+ * worse than a failed request.
+ * </p>
  */
 @Service
 public class EmployeePinService {
@@ -42,6 +50,7 @@ public class EmployeePinService {
     private final EmployeeStorePinWriter pinWriter;
     private final PinHasher pinHasher;
     private final PinProperties pinProperties;
+    private final PosSessionRevoker sessionRevoker;
 
     /**
      * Constructor for EmployeePinService.
@@ -49,15 +58,18 @@ public class EmployeePinService {
      * @param pinWriter the transactional PIN writer
      * @param pinHasher the credential hasher
      * @param pinProperties the configured PIN policy
+     * @param sessionRevoker revokes sessions issued under the replaced PIN
      */
     public EmployeePinService(EmployeeRepository employeeRepo,
                               EmployeeStorePinWriter pinWriter,
                               PinHasher pinHasher,
-                              PinProperties pinProperties) {
+                              PinProperties pinProperties,
+                              PosSessionRevoker sessionRevoker) {
         this.employeeRepo = employeeRepo;
         this.pinWriter = pinWriter;
         this.pinHasher = pinHasher;
         this.pinProperties = pinProperties;
+        this.sessionRevoker = sessionRevoker;
     }
 
     /**
@@ -85,8 +97,9 @@ public class EmployeePinService {
         }
         String fingerprint = pinHasher.fingerprint(pin);
         String hash = pinHasher.hash(pin);
+        EmployeePinCredential credential;
         try {
-            return pinWriter.setPin(employee, hash, fingerprint);
+            credential = pinWriter.setPin(employee, hash, fingerprint);
         } catch (DataIntegrityViolationException ex) {
             if (!isFingerprintConflict(ex)) {
                 throw ex;
@@ -95,13 +108,19 @@ public class EmployeePinService {
                     "PIN is already in use by another employee assigned to the same store:"
                             + " employeeId=" + employeeId);
         }
+        // The credential has committed, so anyone still holding a token that
+        // was issued under the old PIN loses it now. Kept outside the catch:
+        // a failed revocation is not a PIN conflict.
+        sessionRevoker.revokeAllForEmployee(employeeId, Instant.now());
+        return credential;
     }
 
     /**
-     * Remove an employee's PIN, freeing it at every assigned store.
-     * Idempotent: an employee without a credential succeeds quietly.
-     * Inactive employees may be removed as well - the active-only rule
-     * guards usage (setting), not cleanup. Missing employees are 404.
+     * Remove an employee's PIN, freeing it at every assigned store and
+     * ending every session that was issued under it. Idempotent: an
+     * employee without a credential succeeds quietly. Inactive employees
+     * may be removed as well - the active-only rule guards usage (setting),
+     * not cleanup. Missing employees are 404.
      * @param employeeId the employee ID
      * @throws EmployeeNotFoundException if the employee does not exist
      */
@@ -110,6 +129,7 @@ public class EmployeePinService {
             throw new EmployeeNotFoundException(employeeId);
         }
         pinWriter.removePin(employeeId);
+        sessionRevoker.revokeAllForEmployee(employeeId, Instant.now());
     }
 
     /**

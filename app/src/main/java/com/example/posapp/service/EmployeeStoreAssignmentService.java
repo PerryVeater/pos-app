@@ -1,5 +1,6 @@
 package com.example.posapp.service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
@@ -66,6 +67,7 @@ public class EmployeeStoreAssignmentService {
     private final StoreRepository storeRepo;
     private final EmployeeStoreAssignmentRepository assignmentRepo;
     private final EmployeeStorePinWriter pinWriter;
+    private final PosSessionRevoker sessionRevoker;
 
     /**
      * Constructor for EmployeeStoreAssignmentService.
@@ -74,15 +76,19 @@ public class EmployeeStoreAssignmentService {
      * @param assignmentRepo the repository for employee ↔ store assignments
      * @param pinWriter the transactional PIN writer, consulted only when
      *        the employee being assigned holds a PIN credential
+     * @param sessionRevoker revokes the sessions held at a store when an
+     *        assignment is removed
      */
     public EmployeeStoreAssignmentService(EmployeeRepository employeeRepo,
                                           StoreRepository storeRepo,
                                           EmployeeStoreAssignmentRepository assignmentRepo,
-                                          EmployeeStorePinWriter pinWriter) {
+                                          EmployeeStorePinWriter pinWriter,
+                                          PosSessionRevoker sessionRevoker) {
         this.employeeRepo = employeeRepo;
         this.storeRepo = storeRepo;
         this.assignmentRepo = assignmentRepo;
         this.pinWriter = pinWriter;
+        this.sessionRevoker = sessionRevoker;
     }
 
     /**
@@ -238,9 +244,10 @@ public class EmployeeStoreAssignmentService {
     }
 
     /**
-     * Remove an employee's assignment to a store. Removing a missing
-     * assignment is a no-op so the endpoint is idempotent. Neither the
-     * employee nor the store is deleted.
+     * Remove an employee's assignment to a store, ending any POS session
+     * they hold at that store and leaving their sessions elsewhere alone.
+     * Removing a missing assignment is a no-op so the endpoint is
+     * idempotent. Neither the employee nor the store is deleted.
      * @param employeeId the employee ID
      * @param storeId the store ID
      * @throws EmployeeNotFoundException if the employee does not exist
@@ -260,6 +267,10 @@ public class EmployeeStoreAssignmentService {
         }
         assignmentRepo.findByEmployeeIdAndStoreId(employeeId, storeId)
                 .ifPresent(assignmentRepo::delete);
+        // Unconditional, not only when an assignment row existed: no
+        // assignment means no access at this store, so a token that
+        // outlived its assignment is exactly what must not keep working.
+        sessionRevoker.revokeForEmployeeAtStore(employeeId, storeId, Instant.now());
     }
 
     /**

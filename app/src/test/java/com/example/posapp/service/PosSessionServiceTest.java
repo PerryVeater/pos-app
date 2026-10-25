@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -11,6 +12,7 @@ import static org.mockito.Mockito.when;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -164,6 +166,30 @@ class PosSessionServiceTest {
                 .isInstanceOf(PosSessionInvalidException.class);
 
         verify(sessionRepository, never()).findByTokenHash(anyString());
+    }
+
+    @Test
+    @DisplayName("issuing beyond the per-employee cap revokes the oldest live session first")
+    void capRevokesOldestSession() {
+        when(sessionProperties.ttl()).thenReturn(TTL);
+        when(sessionProperties.maxPerEmployee()).thenReturn(2);
+        when(tokenService.generateToken()).thenReturn("raw-new");
+        when(tokenService.hash("raw-new")).thenReturn("HASH-NEW");
+        when(sessionRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Instant now = Instant.now();
+        PosSession oldest = new PosSession(employee(1L, "Ada"), store(2L, "Downtown"),
+                "HASH-OLD", now.minusSeconds(600), now.plus(TTL));
+        PosSession previous = new PosSession(employee(1L, "Ada"), store(2L, "Downtown"),
+                "HASH-PREV", now.minusSeconds(60), now.plus(TTL));
+        when(sessionRepository.findLiveByEmployeeId(eq(1L), any()))
+                .thenReturn(List.of(oldest, previous));
+
+        service.startSession(employee(1L, "Ada"), store(2L, "Downtown"));
+
+        // A cap of 2 leaves room for one survivor, so only the oldest goes.
+        assertThat(oldest.getRevokedAt()).isNotNull();
+        assertThat(previous.getRevokedAt()).isNull();
     }
 
     // --- fixtures ---

@@ -108,6 +108,12 @@
                     <systemPropertyVariables>
                         <spring.jpa.show-sql>false</spring.jpa.show-sql>
                         <spring.jpa.properties.hibernate.format_sql>false</spring.jpa.properties.hibernate.format_sql>
+                        <!-- Scheduling stays on in production, but a purge
+                             thread firing mid-test would delete rows the
+                             test is about to assert on. The job bean is
+                             conditional on this flag, so tests exercise
+                             PosSessionPurger directly instead. -->
+                        <pos.session.purge-enabled>false</pos.session.purge-enabled>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>

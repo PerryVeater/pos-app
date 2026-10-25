@@ -49,9 +49,13 @@ class EmployeePinServiceTest {
     @Mock
     private EmployeeStorePinWriter pinWriter;
 
+    @Mock
+    private PosSessionRevoker sessionRevoker;
+
     private EmployeePinService newService() {
         PinProperties properties = new PinProperties(4, 6, "test-hmac-secret", 1000);
-        return new EmployeePinService(employeeRepo, pinWriter, new PinHasher(properties), properties);
+        return new EmployeePinService(employeeRepo, pinWriter, new PinHasher(properties),
+                properties, sessionRevoker);
     }
 
     private static Employee activeEmployee() {
@@ -75,6 +79,7 @@ class EmployeePinServiceTest {
                     .hasMessageContaining("digits");
         }
         verify(pinWriter, never()).setPin(any(), anyString(), anyString());
+        verify(sessionRevoker, never()).revokeAllForEmployee(any(), any());
     }
 
     @Test
@@ -92,7 +97,8 @@ class EmployeePinServiceTest {
     void windowIsConfigurable() {
         PinProperties wide = new PinProperties(3, 8, "test-hmac-secret", 1000);
         EmployeePinService service =
-                new EmployeePinService(employeeRepo, pinWriter, new PinHasher(wide), wide);
+                new EmployeePinService(employeeRepo, pinWriter, new PinHasher(wide), wide,
+                        sessionRevoker);
         when(employeeRepo.findById(1L)).thenReturn(Optional.of(activeEmployee()));
         when(pinWriter.setPin(any(), anyString(), anyString()))
                 .thenReturn(new EmployeePinCredential());
@@ -101,6 +107,8 @@ class EmployeePinServiceTest {
         service.setPin(1L, "007");
 
         verify(pinWriter).setPin(any(), anyString(), anyString());
+        // A change of PIN ends the sessions issued under the old one.
+        verify(sessionRevoker).revokeAllForEmployee(eq(1L), any());
     }
 
     @Test

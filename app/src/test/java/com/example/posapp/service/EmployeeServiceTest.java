@@ -54,6 +54,9 @@ class EmployeeServiceTest {
     @Mock
     private EmployeeStoreAssignmentRepository assignmentRepo;
 
+    @Mock
+    private PosSessionRevoker sessionRevoker;
+
     @InjectMocks
     private EmployeeService employeeService;
 

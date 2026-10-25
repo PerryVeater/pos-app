@@ -1,5 +1,6 @@
 package com.example.posapp.service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -40,6 +41,7 @@ public class EmployeeService {
     private final OrganizationRepository organizationRepo;
     private final EmployeeGroupMembershipRepository membershipRepo;
     private final EmployeeStoreAssignmentRepository assignmentRepo;
+    private final PosSessionRevoker sessionRevoker;
 
     /**
      * Constructor for EmployeeService.
@@ -50,15 +52,19 @@ public class EmployeeService {
      *        used by the delete and organization-change guards
      * @param assignmentRepo the repository for employee store assignments,
      *        used by the delete and organization-change guards
+     * @param sessionRevoker revokes POS sessions when an employee is
+     *        deactivated
      */
     public EmployeeService(EmployeeRepository employeeRepo,
                            OrganizationRepository organizationRepo,
                            EmployeeGroupMembershipRepository membershipRepo,
-                           EmployeeStoreAssignmentRepository assignmentRepo) {
+                           EmployeeStoreAssignmentRepository assignmentRepo,
+                           PosSessionRevoker sessionRevoker) {
         this.employeeRepo = employeeRepo;
         this.organizationRepo = organizationRepo;
         this.membershipRepo = membershipRepo;
         this.assignmentRepo = assignmentRepo;
+        this.sessionRevoker = sessionRevoker;
     }
 
     /**
@@ -121,11 +127,18 @@ public class EmployeeService {
                                         + organizationId + ", email=" + normalizedEmail);
                     }
                     rejectOrganizationChangeWithAttachments(existing, organizationId, id);
+                    // Deactivation ends every POS session immediately: a
+                    // bearer token is not a shift.
+                    boolean deactivating = existing.isActive() && !updated.isActive();
                     existing.setName(updated.getName());
                     existing.setEmail(normalizedEmail);
                     existing.setActive(updated.isActive());
                     existing.setOrganization(organization);
-                    return employeeRepo.save(existing);
+                    Employee saved = employeeRepo.save(existing);
+                    if (deactivating) {
+                        sessionRevoker.revokeAllForEmployee(id, Instant.now());
+                    }
+                    return saved;
                 })
                 .orElseThrow(() -> new EmployeeNotFoundException(id));
     }
