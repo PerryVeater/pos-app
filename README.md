@@ -39,10 +39,11 @@ without running anything and is not a substitute.
 
 The database schema is managed by [Flyway](https://flywaydb.org). Versioned
 migrations live in `app/src/main/resources/db/migration` (currently `V1`
-through `V20`, e.g. `V1__create_product_table.sql`,
+through `V21`, e.g. `V1__create_product_table.sql`,
 `V4__add_orders_and_order_lines.sql`, `V17__add_pos_sessions.sql`,
 `V19__make_order_attribution_non_nullable.sql`,
-`V20__add_pos_session_lifecycle_indexes.sql`)
+`V20__add_pos_session_lifecycle_indexes.sql`,
+`V21__add_pin_secret_anchor.sql`)
 and are
 applied automatically at application startup. Each product carries a caller-supplied, unique `sku` (the stable
 identifier used by POS systems), an `active` flag (products are deactivated
@@ -127,6 +128,14 @@ Security notes:
   matched a claim. A PIN that matches nobody is counted against the store
   alone, because the server has not identified anybody. The line never
   contains the PIN or the fingerprint derived from it.
+- PIN fingerprints are HMAC-`pos.pin.hmac-secret`, so every store claim is
+  bound to the secret that produced it. Startup compares the configured secret
+  against a one-row anchor (`pos_pin_secret_anchor`, Flyway V21) and **refuses
+  to boot** on a mismatch: the alternative is starting normally while every
+  employee's login fails exactly like a wrong PIN. Because fingerprints cannot
+  be recomputed from the stored PBKDF2 hashes, rotation is re-enrollment - arm
+  `pos.pin.fingerprint-reset=true` for one startup to drop the claims and
+  re-anchor, then have each employee set their PIN again.
 - The POS order endpoints reuse `PosSessionService.currentSession` for the
   bearer check (no duplicated token logic) and confine retrieval/status updates
   to the session's store. Every order records the session's store and employee
@@ -160,6 +169,13 @@ overridable via environment variables):
   header to evade the limit. By default the remote address is used.
 - `pos.auth.rate-limit.max-entries` (default `100000`) – bounds the in-memory
   bucket map so arbitrary client input cannot grow it without limit.
+- `pos.pin.hmac-secret` (dev default only) – keys the deterministic PIN
+  fingerprints. It **must** be overridden with a high-entropy value outside
+  local development, and it cannot be changed casually: see the fingerprint
+  anchor note above.
+- `pos.pin.fingerprint-reset` (default `false`) – arm for exactly one startup
+  to apply a changed `pos.pin.hmac-secret`, dropping every store claim. Every
+  employee must then set their PIN again. Unset it afterwards.
 
 Limitations: the rate limiter is **process-local** (in-memory) and is not
 shared across multiple application instances; a horizontally scaled

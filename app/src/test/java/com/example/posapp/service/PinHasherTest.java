@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 class PinHasherTest {
 
     private final PinHasher hasher =
-            new PinHasher(new PinProperties(4, 6, "test-hmac-secret", 1000));
+            new PinHasher(new PinProperties(4, 6, "test-hmac-secret", 1000, false));
 
     @Test
     @DisplayName("hash verifies the same PIN and rejects a different one")

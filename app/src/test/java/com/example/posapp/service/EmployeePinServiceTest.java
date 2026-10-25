@@ -53,7 +53,7 @@ class EmployeePinServiceTest {
     private PosSessionRevoker sessionRevoker;
 
     private EmployeePinService newService() {
-        PinProperties properties = new PinProperties(4, 6, "test-hmac-secret", 1000);
+        PinProperties properties = new PinProperties(4, 6, "test-hmac-secret", 1000, false);
         return new EmployeePinService(employeeRepo, pinWriter, new PinHasher(properties),
                 properties, sessionRevoker);
     }
@@ -95,7 +95,7 @@ class EmployeePinServiceTest {
     @Test
     @DisplayName("the accepted window honours the configured min and max length")
     void windowIsConfigurable() {
-        PinProperties wide = new PinProperties(3, 8, "test-hmac-secret", 1000);
+        PinProperties wide = new PinProperties(3, 8, "test-hmac-secret", 1000, false);
         EmployeePinService service =
                 new EmployeePinService(employeeRepo, pinWriter, new PinHasher(wide), wide,
                         sessionRevoker);
@@ -121,7 +121,7 @@ class EmployeePinServiceTest {
 
         service.setPin(1L, "0421");
 
-        String expectedFingerprint = new PinHasher(new PinProperties(4, 6, "test-hmac-secret", 1000))
+        String expectedFingerprint = new PinHasher(new PinProperties(4, 6, "test-hmac-secret", 1000, false))
                 .fingerprint("0421");
         verify(pinWriter).setPin(any(), anyString(), eq(expectedFingerprint));
     }
