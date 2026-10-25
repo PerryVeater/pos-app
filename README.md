@@ -39,11 +39,12 @@ without running anything and is not a substitute.
 
 The database schema is managed by [Flyway](https://flywaydb.org). Versioned
 migrations live in `app/src/main/resources/db/migration` (currently `V1`
-through `V21`, e.g. `V1__create_product_table.sql`,
+through `V22`, e.g. `V1__create_product_table.sql`,
 `V4__add_orders_and_order_lines.sql`, `V17__add_pos_sessions.sql`,
 `V19__make_order_attribution_non_nullable.sql`,
 `V20__add_pos_session_lifecycle_indexes.sql`,
-`V21__add_pin_secret_anchor.sql`)
+`V21__add_pin_secret_anchor.sql`,
+`V22__add_order_query_indexes.sql`)
 and are
 applied automatically at application startup. Each product carries a caller-supplied, unique `sku` (the stable
 identifier used by POS systems), an `active` flag (products are deactivated

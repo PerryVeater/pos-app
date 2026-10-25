@@ -45,7 +45,7 @@ import com.example.posapp.service.PosSessionService;
 
 /**
  * End-to-end integration tests for the authenticated, store-scoped POS payment
- * lifecycle against a real PostgreSQL on the Flyway V1-V21 schema. These cover
+ * lifecycle against a real PostgreSQL on the Flyway V1-V22 schema. These cover
  * what the isolated unit and web tests cannot: a payment persisting as a real
  * foreign key to an owned order, ownership being enforced through the
  * Payment -&gt; Order -&gt; Store path, one store being unable to pay for,
