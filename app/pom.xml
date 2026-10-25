@@ -97,6 +97,20 @@
                     <mainClass>com.example.posapp.PosApplication</mainClass>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Keep generated SQL out of test output: it buries the
+                         failure that actually matters and makes CI logs
+                         unreadable. Runtime SQL logging is configured
+                         separately in application.properties. -->
+                    <systemPropertyVariables>
+                        <spring.jpa.show-sql>false</spring.jpa.show-sql>
+                        <spring.jpa.properties.hibernate.format_sql>false</spring.jpa.properties.hibernate.format_sql>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

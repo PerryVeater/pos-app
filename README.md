@@ -1,15 +1,39 @@
-# Cloud-Native POS System – DevOps Project
+# POS System — Spring Boot backend
 
-This project demonstrates a production-style Point-of-Sale (POS) system.
+A point-of-sale backend: organizations and stores, employees with PIN
+credentials, a menu catalog, POS sessions, orders and payments, on PostgreSQL
+with a Flyway-managed schema.
 
-**Technologies:**
-- Spring Boot (POS API)
-- Docker & Kubernetes
-- Terraform (Infrastructure as Code)
-- CI/CD with GitHub Actions
-- Secrets management, monitoring, automated rollbacks
+**Implemented in this repository:**
 
-**Focus:** Infrastructure, deployment, and DevOps workflow, not payment processing or frontend polish.
+- Spring Boot 3.5 on Java 17 (`app/`)
+- PostgreSQL 16 through Spring Data JPA, with the schema owned by Flyway
+  (`ddl-auto=validate` — Hibernate never creates or alters tables)
+- Testcontainers-backed integration tests against a real PostgreSQL container
+- A Docker image (`Dockerfile`) and `docker-compose.yml` for local development
+- GitHub Actions CI: build, test, and publish an image from `main` only
+
+**Planned, deliberately not present yet:**
+
+- Kubernetes manifests and Terraform infrastructure
+- Prometheus/Grafana monitoring, alerting and dashboards
+- Secret management and automated rollback
+
+Earlier revisions of this file listed the last group as if it existed. It does
+not; treat it as future work rather than as a description of the tree.
+
+## Build and test
+
+Requires JDK 17 or later with `JAVA_HOME` set, and a running Docker daemon —
+the integration tests start PostgreSQL 16 through Testcontainers.
+
+    cd app
+    ./mvnw verify
+
+The suite takes several minutes: most of the wall clock is container startup
+and Spring context creation for the repository tests, not assertions.
+`verify` is the gate to use before pushing. `-DskipTests package` builds the jar
+without running anything and is not a substitute.
 
 ## Database schema
 
@@ -26,6 +50,10 @@ unique name) via `category_id`. Hibernate runs with `ddl-auto=validate`, so it
 verifies the schema against the JPA model instead of modifying it. Databases
 created before Flyway was introduced are baselined automatically on first
 startup (`spring.flyway.baseline-on-migrate=true`) and are not recreated.
+
+Migration rules — forward-only, never edit an applied migration, and when a
+data-destructive statement is acceptable — are in
+[docs/migration-policy.md](docs/migration-policy.md).
 
 ## Local PostgreSQL (development)
 
