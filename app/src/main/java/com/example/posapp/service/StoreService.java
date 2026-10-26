@@ -24,10 +24,12 @@ import com.example.posapp.repository.StoreRepository;
  * Encapsulates the store business rules: name is required (but not
  * unique); an optional {@code storeNumber} is unique within the owning
  * organization when present; every store must reference an existing
- * {@link Organization} on both create and update (re-parenting is allowed
- * as long as the new owner exists and the store has no employee
- * assignments left, because assignments are pinned to the store's
- * organization through V15's composite foreign keys); the {@code country}
+ * {@link Organization} on both create and update, and that organization is
+ * the caller's brand - the lookup is scoped to it, so a request naming
+ * another brand's organization is answered exactly like one naming an
+ * organization that does not exist, and because the store is itself loaded
+ * within the brand, re-parenting across brands is not expressible through
+ * the back office; the {@code country}
  * must be a real ISO 3166-1 alpha-2 code (normalized to uppercase); and
  * the IANA {@code timezone} must be a valid zone identifier recognized by
  * {@link ZoneId#getAvailableZoneIds()}. Deleting a store is guarded
@@ -72,17 +74,19 @@ public class StoreService {
      * owning organization.
      * @param store the transient store to save (its organization field is
      *        overwritten by the resolved organization)
-     * @param organizationId the ID of the owning organization, required
+     * @param organizationId the ID of the owning organization, required; it
+     *        must be the caller's brand
+     * @param brandId the organization the caller may act within
      * @return the saved store
      * @throws OrganizationValidationException if the name is blank, an
      *         address field is missing, the timezone is not a valid IANA
      *         identifier, or the store number is already used in the
      *         organization
-     * @throws OrganizationNotFoundException if the organization ID is missing
-     *         or does not exist
+     * @throws OrganizationNotFoundException if the organization ID is
+     *         missing, does not exist, or lies outside the brand
      */
-    public Store createStore(Store store, Long organizationId) {
-        Organization organization = resolveOrganization(organizationId);
+    public Store createStore(Store store, Long organizationId, Long brandId) {
+        Organization organization = resolveOrganization(organizationId, brandId);
         validateRequiredFields(store);
         store.setCountry(normalizeAndValidateCountry(store.getCountry()));
         validateTimezone(store.getTimezone());
@@ -99,32 +103,31 @@ public class StoreService {
     }
 
     /**
-     * Update an existing store, including re-parenting it to a different
-     * organization. The store number is validated against the target
-     * organization, so re-parenting a store into an organization that
-     * already uses its number is rejected. Re-parenting is refused while
-     * the store still has employee assignments.
+     * Update an existing store. The store number is validated against the
+     * owning organization, and both the store and the requested
+     * organization must belong to the caller's brand.
      * @param id the store ID
      * @param updated the replacement values
-     * @param organizationId the new owning organization ID (required; may
-     *        equal the current owner)
+     * @param organizationId the owning organization ID (required; must be
+     *        the caller's brand, and therefore the store's current owner)
+     * @param brandId the organization the caller may act within
      * @return the updated store
-     * @throws StoreNotFoundException if no store exists with the ID
-     * @throws OrganizationNotFoundException if the organization ID is missing
-     *         or does not exist
-     * @throws OrganizationValidationException if a required field is missing,
-     *         the timezone is invalid, the store number conflicts with
-     *         another store in the target organization, or the organization
-     *         is changing while the store still has employee assignments
+     * @throws StoreNotFoundException if no store exists with the ID inside
+     *         the brand
+     * @throws OrganizationNotFoundException if the organization ID is
+     *         missing, does not exist, or lies outside the brand
+     * @throws OrganizationValidationException if a required field is
+     *         missing, the timezone is invalid, or the store number
+     *         conflicts with another store in the organization
      */
-    public Store updateStore(Long id, Store updated, Long organizationId) {
-        Organization organization = resolveOrganization(organizationId);
+    public Store updateStore(Long id, Store updated, Long organizationId, Long brandId) {
+        Organization organization = resolveOrganization(organizationId, brandId);
         validateRequiredFields(updated);
         updated.setCountry(normalizeAndValidateCountry(updated.getCountry()));
         validateTimezone(updated.getTimezone());
         String normalizedNumber = normalizeStoreNumber(updated.getStoreNumber());
         updated.setStoreNumber(normalizedNumber);
-        return storeRepo.findById(id)
+        return storeRepo.findByIdAndOrganizationId(id, brandId)
                 .map(existing -> {
                     if (normalizedNumber != null
                             && storeRepo.existsByOrganizationIdAndStoreNumberAndIdNot(
@@ -133,7 +136,6 @@ public class StoreService {
                                 "Store number already exists in organization: organizationId="
                                         + organizationId + ", storeNumber=" + normalizedNumber);
                     }
-                    rejectOrganizationChangeWithAssignments(existing, organizationId, id);
                     existing.setName(updated.getName());
                     existing.setActive(updated.isActive());
                     existing.setOrganization(organization);
@@ -153,56 +155,21 @@ public class StoreService {
     }
 
     /**
-     * Refuse to move a store that still has employee assignments into a
-     * different organization. The V15 migration pins every assignment row
-     * to the store's organization through a composite foreign key, so a
-     * silent cross-organization update would be rejected by the database
-     * with a raw {@code fk_esa_store} violation. Doing the check here
-     * turns that into a clean domain-level 400 and gives callers the
-     * opportunity to detach the assignments first. Mirrors
-     * {@code EmployeeService.rejectOrganizationChangeWithAttachments} and
-     * is likewise fail-safe: the count runs whenever the organization is
-     * not provably unchanged.
-     * @param existing the persisted store about to be updated
-     * @param targetOrganizationId the organization ID requested by the caller
-     * @param id the store ID, used for the assignment count and error text
-     * @throws OrganizationValidationException if the organization is
-     *         changing and the store still has assigned employees
-     */
-    private void rejectOrganizationChangeWithAssignments(Store existing,
-                                                         Long targetOrganizationId,
-                                                         Long id) {
-        Long currentOrganizationId = existing.getOrganization() == null
-                ? null : existing.getOrganization().getId();
-        // Skip the count only when we can prove the organization is not
-        // changing; anything else (different ID or unknown current ID)
-        // falls through so the guard still rejects the update when an
-        // assignment exists.
-        if (currentOrganizationId != null && currentOrganizationId.equals(targetOrganizationId)) {
-            return;
-        }
-        if (assignmentRepo.countByStoreId(id) > 0) {
-            throw new OrganizationValidationException(
-                    "Cannot move store to another organization while employee"
-                            + " assignments exist: storeId=" + id
-                            + ", currentOrganizationId=" + currentOrganizationId
-                            + ", targetOrganizationId=" + targetOrganizationId);
-        }
-    }
-
-    /**
      * Delete a store by ID. Refuses to delete a store that still has
      * employee assignments so callers must remove the assignments first.
-     * A missing store is reported as not found rather than being the
-     * silent no-op {@code deleteById} would otherwise perform, matching
-     * the employee and employee group delete semantics.
+     * A missing store - or a store belonging to another brand, which is
+     * indistinguishable from missing - is reported as not found rather than
+     * being the silent no-op {@code deleteById} would otherwise perform,
+     * matching the employee and employee group delete semantics.
      * @param id the store ID
-     * @throws StoreNotFoundException if no store exists with the ID
+     * @param brandId the organization the caller may act within
+     * @throws StoreNotFoundException if no store exists with the ID inside
+     *         the brand
      * @throws OrganizationValidationException if the store still has
      *         employee assignments
      */
-    public void deleteStore(Long id) {
-        if (!storeRepo.existsById(id)) {
+    public void deleteStore(Long id, Long brandId) {
+        if (!storeRepo.existsByIdAndOrganizationId(id, brandId)) {
             throw new StoreNotFoundException(id);
         }
         if (assignmentRepo.countByStoreId(id) > 0) {
@@ -213,37 +180,42 @@ public class StoreService {
     }
 
     /**
-     * Retrieve every store.
-     * @return the list of stores
+     * Retrieve every store in the caller's brand.
+     * @param brandId the organization the caller may act within
+     * @return the stores of that organization
      */
-    public List<Store> getAllStores() {
-        return storeRepo.findAll();
+    public List<Store> getAllStores(Long brandId) {
+        return storeRepo.findByOrganizationId(brandId);
     }
 
     /**
-     * Retrieve a store by ID.
+     * Retrieve a store by ID, within the caller's brand.
      * @param id the store ID
-     * @return the Optional containing the store if found
+     * @param brandId the organization the caller may act within
+     * @return the Optional containing the store if found in that brand
      * @throws IllegalArgumentException if {@code id} is null
      */
-    public Optional<Store> getStoreById(Long id) {
+    public Optional<Store> getStoreById(Long id, Long brandId) {
         if (id == null) {
             throw new IllegalArgumentException("ID cannot be null");
         }
-        return storeRepo.findById(id);
+        return storeRepo.findByIdAndOrganizationId(id, brandId);
     }
 
     /**
      * Load the referenced organization or fail with
      * {@link OrganizationNotFoundException}. A null ID is treated the same
      * way as a missing organization so callers cannot bypass the FK
-     * requirement.
+     * requirement, and an ID outside the caller's brand is treated the same
+     * way as a missing one so the endpoint reveals nothing about other
+     * brands.
      * @param organizationId the ID to resolve (may be null)
+     * @param brandId the organization the caller may act within
      * @return the persisted organization
      */
-    private Organization resolveOrganization(Long organizationId) {
-        if (organizationId == null) {
-            throw new OrganizationNotFoundException(null);
+    private Organization resolveOrganization(Long organizationId, Long brandId) {
+        if (organizationId == null || !organizationId.equals(brandId)) {
+            throw new OrganizationNotFoundException(organizationId);
         }
         return organizationRepo.findById(organizationId)
                 .orElseThrow(() -> new OrganizationNotFoundException(organizationId));

@@ -1,6 +1,7 @@
 package com.example.posapp.repository;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -54,4 +55,22 @@ public interface EmployeeGroupRepository extends JpaRepository<EmployeeGroup, Lo
      * @return the number of groups referencing the organization
      */
     long countByOrganizationId(Long organizationId);
+
+    /**
+     * Resolve a group only when it belongs to the given organization. The
+     * brand is part of the predicate so another brand's group is
+     * indistinguishable from a group that does not exist.
+     * @param id the group ID
+     * @param organizationId the brand the caller may act within
+     * @return the group, or empty when it does not exist in that brand
+     */
+    Optional<EmployeeGroup> findByIdAndOrganizationId(Long id, Long organizationId);
+
+    /**
+     * Find every group owned by the given organization, root and nested
+     * alike, for the brand-wide listing.
+     * @param organizationId the brand the caller may act within
+     * @return the groups of that organization (possibly empty)
+     */
+    List<EmployeeGroup> findByOrganizationId(Long organizationId);
 }

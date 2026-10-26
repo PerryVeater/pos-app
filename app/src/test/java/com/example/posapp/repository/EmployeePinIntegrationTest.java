@@ -47,6 +47,12 @@ import com.example.posapp.service.EmployeeStoreAssignmentService;
  * are intentionally not transactional; an {@link AfterEach} wipes the
  * feature tables so each test starts from a clean slate.
  * </p>
+ * <p>
+ * Both services are brand-scoped, so every call also passes the owning
+ * organization's ID - the caller's brand. These tests exercise the real
+ * rows, so a brand mismatch would surface as a genuine not-found rather
+ * than a shortcut.
+ * </p>
  */
 @SpringBootTest
 @Testcontainers
@@ -134,8 +140,8 @@ class EmployeePinIntegrationTest {
         Organization org = newOrg("INT-PIN-SET Acme");
         Employee employee = newEmployee(org, "INT-PIN-SET Ada", true);
 
-        pinService.setPin(employee.getId(), "0421");
-        pinService.setPin(employee.getId(), "135790");
+        pinService.setPin(employee.getId(), "0421", org.getId());
+        pinService.setPin(employee.getId(), "135790", org.getId());
 
         List<String> hashes = jdbcTemplate.queryForList(
                 "SELECT pin_hash FROM employee_pin_credential WHERE employee_id = ?",
@@ -160,10 +166,10 @@ class EmployeePinIntegrationTest {
         Organization org = newOrg("INT-PIN-CHG Acme");
         Employee employee = newEmployee(org, "INT-PIN-CHG Ada", true);
         Store store = newStore(org, "INT-PIN-CHG Store");
-        assignmentService.assignEmployeeToStore(employee.getId(), store.getId());
+        assignmentService.assignEmployeeToStore(employee.getId(), store.getId(), org.getId());
 
-        pinService.setPin(employee.getId(), "1111");
-        pinService.setPin(employee.getId(), "2222");
+        pinService.setPin(employee.getId(), "1111", org.getId());
+        pinService.setPin(employee.getId(), "2222", org.getId());
 
         // Still exactly one claim row for the single employee-store, and no
         // duplicate despite two setPin calls (the (employee_id, store_id)
@@ -182,7 +188,7 @@ class EmployeePinIntegrationTest {
         Employee employee = newEmployee(org, "INT-PIN-BAD Ada", true);
 
         for (String bad : new String[]{"12", "1234567", "12a4", "1234 "}) {
-            assertThatThrownBy(() -> pinService.setPin(employee.getId(), bad))
+            assertThatThrownBy(() -> pinService.setPin(employee.getId(), bad, org.getId()))
                     .as("PIN '%s'", bad)
                     .isInstanceOf(EmployeePinValidationException.class);
         }
@@ -192,7 +198,7 @@ class EmployeePinIntegrationTest {
     @Test
     @DisplayName("a missing employee cannot get a PIN")
     void missingEmployeeRejected() {
-        assertThatThrownBy(() -> pinService.setPin(999999L, "1234"))
+        assertThatThrownBy(() -> pinService.setPin(999999L, "1234", 999999L))
                 .isInstanceOf(EmployeeNotFoundException.class);
     }
 
@@ -202,7 +208,7 @@ class EmployeePinIntegrationTest {
         Organization org = newOrg("INT-PIN-INACT Acme");
         Employee employee = newEmployee(org, "INT-PIN-INACT Bob", false);
 
-        assertThatThrownBy(() -> pinService.setPin(employee.getId(), "1234"))
+        assertThatThrownBy(() -> pinService.setPin(employee.getId(), "1234", org.getId()))
                 .isInstanceOf(EmployeePinValidationException.class)
                 .hasMessageContaining("active");
         assertThat(credentialCount(employee.getId())).isZero();
@@ -218,11 +224,11 @@ class EmployeePinIntegrationTest {
         Employee bob = newEmployee(org, "INT-PIN-DIFF Bob", true);
         Store downtown = newStore(org, "INT-PIN-DIFF Downtown");
         Store airport = newStore(org, "INT-PIN-DIFF Airport");
-        assignmentService.assignEmployeeToStore(ada.getId(), downtown.getId());
-        assignmentService.assignEmployeeToStore(bob.getId(), airport.getId());
+        assignmentService.assignEmployeeToStore(ada.getId(), downtown.getId(), org.getId());
+        assignmentService.assignEmployeeToStore(bob.getId(), airport.getId(), org.getId());
 
-        pinService.setPin(ada.getId(), "1234");
-        pinService.setPin(bob.getId(), "1234");
+        pinService.setPin(ada.getId(), "1234", org.getId());
+        pinService.setPin(bob.getId(), "1234", org.getId());
 
         assertThat(claimCountAtStore(downtown.getId())).isEqualTo(1);
         assertThat(claimCountAtStore(airport.getId())).isEqualTo(1);
@@ -235,12 +241,12 @@ class EmployeePinIntegrationTest {
         Employee ada = newEmployee(org, "INT-PIN-SHARE Ada", true);
         Employee bob = newEmployee(org, "INT-PIN-SHARE Bob", true);
         Store store = newStore(org, "INT-PIN-SHARE Store");
-        assignmentService.assignEmployeeToStore(ada.getId(), store.getId());
-        assignmentService.assignEmployeeToStore(bob.getId(), store.getId());
+        assignmentService.assignEmployeeToStore(ada.getId(), store.getId(), org.getId());
+        assignmentService.assignEmployeeToStore(bob.getId(), store.getId(), org.getId());
 
-        pinService.setPin(ada.getId(), "1234");
+        pinService.setPin(ada.getId(), "1234", org.getId());
 
-        assertThatThrownBy(() -> pinService.setPin(bob.getId(), "1234"))
+        assertThatThrownBy(() -> pinService.setPin(bob.getId(), "1234", org.getId()))
                 .isInstanceOf(EmployeePinValidationException.class)
                 .hasMessageContaining("already in use");
         // Bob keeps no credential and the loser's claim was rolled back.
@@ -256,11 +262,11 @@ class EmployeePinIntegrationTest {
         Store downtown = newStore(org, "INT-PIN-MULTI Downtown");
         Store airport = newStore(org, "INT-PIN-MULTI Airport");
         Store harbor = newStore(org, "INT-PIN-MULTI Harbor");
-        assignmentService.assignEmployeeToStore(ada.getId(), downtown.getId());
-        assignmentService.assignEmployeeToStore(ada.getId(), airport.getId());
-        assignmentService.assignEmployeeToStore(ada.getId(), harbor.getId());
+        assignmentService.assignEmployeeToStore(ada.getId(), downtown.getId(), org.getId());
+        assignmentService.assignEmployeeToStore(ada.getId(), airport.getId(), org.getId());
+        assignmentService.assignEmployeeToStore(ada.getId(), harbor.getId(), org.getId());
 
-        pinService.setPin(ada.getId(), "1234");
+        pinService.setPin(ada.getId(), "1234", org.getId());
 
         assertThat(claimCountAtStore(downtown.getId())).isEqualTo(1);
         assertThat(claimCountAtStore(airport.getId())).isEqualTo(1);
@@ -281,15 +287,16 @@ class EmployeePinIntegrationTest {
         Store downtown = newStore(org, "INT-PIN-ASSIGN Downtown");
         Store airport = newStore(org, "INT-PIN-ASSIGN Airport");
 
-        assignmentService.assignEmployeeToStore(ada.getId(), downtown.getId());
-        pinService.setPin(ada.getId(), "1234");
+        assignmentService.assignEmployeeToStore(ada.getId(), downtown.getId(), org.getId());
+        pinService.setPin(ada.getId(), "1234", org.getId());
         // Bob sets the same PIN while only at a different store: allowed.
-        assignmentService.assignEmployeeToStore(bob.getId(), airport.getId());
-        pinService.setPin(bob.getId(), "1234");
+        assignmentService.assignEmployeeToStore(bob.getId(), airport.getId(), org.getId());
+        pinService.setPin(bob.getId(), "1234", org.getId());
 
         // Moving Bob into Downtown, where Ada already claims PIN 1234,
         // must fail and leave Bob unassigned to Downtown.
-        assertThatThrownBy(() -> assignmentService.assignEmployeeToStore(bob.getId(), downtown.getId()))
+        assertThatThrownBy(() -> assignmentService.assignEmployeeToStore(
+                bob.getId(), downtown.getId(), org.getId()))
                 .isInstanceOf(EmployeeStoreValidationException.class)
                 .hasMessageContaining("conflict");
         assertThat(assignmentRepository.existsByEmployeeIdAndStoreId(
@@ -304,15 +311,15 @@ class EmployeePinIntegrationTest {
         Employee ada = newEmployee(org, "INT-PIN-FREE Ada", true);
         Employee bob = newEmployee(org, "INT-PIN-FREE Bob", true);
         Store store = newStore(org, "INT-PIN-FREE Store");
-        assignmentService.assignEmployeeToStore(ada.getId(), store.getId());
-        assignmentService.assignEmployeeToStore(bob.getId(), store.getId());
+        assignmentService.assignEmployeeToStore(ada.getId(), store.getId(), org.getId());
+        assignmentService.assignEmployeeToStore(bob.getId(), store.getId(), org.getId());
 
-        pinService.setPin(ada.getId(), "1234");
-        pinService.removePin(ada.getId());
+        pinService.setPin(ada.getId(), "1234", org.getId());
+        pinService.removePin(ada.getId(), org.getId());
         assertThat(claimCountAtStore(store.getId())).isZero();
 
         // The same PIN is now free at the shared store.
-        pinService.setPin(bob.getId(), "1234");
+        pinService.setPin(bob.getId(), "1234", org.getId());
         assertThat(claimCountAtStore(store.getId())).isEqualTo(1);
         assertThat(credentialCount(bob.getId())).isEqualTo(1);
     }
@@ -327,11 +334,11 @@ class EmployeePinIntegrationTest {
         Employee bob = newEmployee(org, "INT-PIN-NOPIN Bob", true);
         Store store = newStore(org, "INT-PIN-NOPIN Store");
 
-        assignmentService.assignEmployeeToStore(ada.getId(), store.getId());
-        assignmentService.assignEmployeeToStore(bob.getId(), store.getId());
+        assignmentService.assignEmployeeToStore(ada.getId(), store.getId(), org.getId());
+        assignmentService.assignEmployeeToStore(bob.getId(), store.getId(), org.getId());
         // Idempotent re-assign still succeeds.
-        assignmentService.assignEmployeeToStore(ada.getId(), store.getId());
-        assignmentService.removeEmployeeFromStore(ada.getId(), store.getId());
+        assignmentService.assignEmployeeToStore(ada.getId(), store.getId(), org.getId());
+        assignmentService.removeEmployeeFromStore(ada.getId(), store.getId(), org.getId());
 
         assertThat(claimCountAtStore(store.getId())).isZero();
         assertThat(assignmentRepository.existsByEmployeeIdAndStoreId(bob.getId(), store.getId())).isTrue();
@@ -343,8 +350,26 @@ class EmployeePinIntegrationTest {
         Organization org = newOrg("INT-PIN-MISSSTORE Acme");
         Employee ada = newEmployee(org, "INT-PIN-MISSSTORE Ada", true);
 
-        assertThatThrownBy(() -> assignmentService.assignEmployeeToStore(ada.getId(), 999999L))
+        assertThatThrownBy(() -> assignmentService.assignEmployeeToStore(
+                ada.getId(), 999999L, org.getId()))
                 .isInstanceOf(StoreNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("assigning a store in another brand is rejected as missing")
+    void assignStoreInAnotherBrandRejected() {
+        Organization org = newOrg("INT-PIN-BRAND Acme");
+        Organization other = newOrg("INT-PIN-BRAND Globex");
+        Employee ada = newEmployee(org, "INT-PIN-BRAND Ada", true);
+        Store foreignStore = newStore(other, "INT-PIN-BRAND Store");
+
+        // The store exists, but not in Ada's brand: the scoped lookup is
+        // empty, so this must be indistinguishable from a missing store.
+        assertThatThrownBy(() -> assignmentService.assignEmployeeToStore(
+                ada.getId(), foreignStore.getId(), org.getId()))
+                .isInstanceOf(StoreNotFoundException.class);
+        assertThat(assignmentRepository.existsByEmployeeIdAndStoreId(
+                ada.getId(), foreignStore.getId())).isFalse();
     }
 
     // --- concurrency ---
@@ -356,16 +381,18 @@ class EmployeePinIntegrationTest {
         Employee ada = newEmployee(org, "INT-PIN-RACE Ada", true);
         Employee bob = newEmployee(org, "INT-PIN-RACE Bob", true);
         Store store = newStore(org, "INT-PIN-RACE Store");
-        assignmentService.assignEmployeeToStore(ada.getId(), store.getId());
-        assignmentService.assignEmployeeToStore(bob.getId(), store.getId());
+        assignmentService.assignEmployeeToStore(ada.getId(), store.getId(), org.getId());
+        assignmentService.assignEmployeeToStore(bob.getId(), store.getId(), org.getId());
 
         String racingPin = "9999";
         CyclicBarrier barrier = new CyclicBarrier(2);
         ExecutorService pool = Executors.newFixedThreadPool(2);
 
         try {
-            Future<String> adaResult = pool.submit(namedRacer(ada.getId(), racingPin, barrier));
-            Future<String> bobResult = pool.submit(namedRacer(bob.getId(), racingPin, barrier));
+            Future<String> adaResult = pool.submit(
+                    namedRacer(ada.getId(), racingPin, org.getId(), barrier));
+            Future<String> bobResult = pool.submit(
+                    namedRacer(bob.getId(), racingPin, org.getId(), barrier));
             String first = adaResult.get(10, TimeUnit.SECONDS);
             String second = bobResult.get(10, TimeUnit.SECONDS);
 
@@ -390,14 +417,16 @@ class EmployeePinIntegrationTest {
      * conflict so the test can assert exactly one winner.
      * @param employeeId the employee this racer sets the PIN for
      * @param racingPin the PIN both racers try to claim
+     * @param brandId the organization the simulated caller acts within
      * @param barrier the start gate forcing the two writes to overlap
      * @return a callable returning "ok:id" or "conflict:id"
      */
-    private Callable<String> namedRacer(Long employeeId, String racingPin, CyclicBarrier barrier) {
+    private Callable<String> namedRacer(Long employeeId, String racingPin,
+                                        Long brandId, CyclicBarrier barrier) {
         return () -> {
             barrier.await(5, TimeUnit.SECONDS);
             try {
-                pinService.setPin(employeeId, racingPin);
+                pinService.setPin(employeeId, racingPin, brandId);
                 return "ok:" + employeeId;
             } catch (EmployeePinValidationException ex) {
                 return "conflict:" + employeeId;

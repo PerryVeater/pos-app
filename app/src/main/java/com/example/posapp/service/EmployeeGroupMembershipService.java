@@ -1,7 +1,6 @@
 package com.example.posapp.service;
 
 import java.util.List;
-import java.util.Objects;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -11,7 +10,6 @@ import com.example.posapp.entity.Employee;
 import com.example.posapp.entity.EmployeeGroup;
 import com.example.posapp.entity.EmployeeGroupMembership;
 import com.example.posapp.exception.EmployeeGroupNotFoundException;
-import com.example.posapp.exception.EmployeeGroupValidationException;
 import com.example.posapp.exception.EmployeeNotFoundException;
 import com.example.posapp.repository.EmployeeGroupMembershipRepository;
 import com.example.posapp.repository.EmployeeGroupRepository;
@@ -23,13 +21,13 @@ import com.example.posapp.repository.EmployeeRepository;
  * The membership is intentionally separated from {@link EmployeeService}
  * and {@link EmployeeGroupService} so the existing aggregates stay
  * untouched, per the project's assignment-layer convention. Every write
- * must reference an existing employee and an existing group that share the
- * same owning {@link com.example.posapp.entity.Organization}: a missing
- * aggregate is reported as 404 through {@link EmployeeNotFoundException}
- * or {@link EmployeeGroupNotFoundException}, and a cross-organization pair
- * is reported as 400 through {@link EmployeeGroupValidationException}. The
- * database enforces the same rule as a defence in depth through the
- * composite foreign keys added by the V14 migration.
+ * must reference an employee and a group that both belong to the caller's
+ * brand: the two lookups are scoped to the brand, so an aggregate in
+ * another brand is reported as 404 - the same answer a genuinely missing
+ * one gets - rather than as a cross-organization 400 that would confirm the
+ * row exists. The database still enforces the same-organization rule as a
+ * defence in depth through the composite foreign keys added by the V14
+ * migration.
  * </p>
  * <p>
  * Both mutating operations are idempotent: adding an existing membership
@@ -73,8 +71,8 @@ public class EmployeeGroupMembershipService {
      * Attach an employee to an employee group. Re-attaching an existing
      * membership is a no-op so the endpoint is idempotent, including when
      * a concurrent caller commits the same pair between our existence
-     * check and our insert. The employee and the group must belong to the
-     * same organization.
+     * check and our insert. The employee and the group must both belong to
+     * the caller's brand.
      * <p>
      * No outer {@code @Transactional} wraps this method: the two reads
      * and the insert each run in Spring Data's per-call transaction, so
@@ -86,21 +84,18 @@ public class EmployeeGroupMembershipService {
      * </p>
      * @param employeeId the employee ID
      * @param employeeGroupId the employee group ID
+     * @param brandId the organization the caller may act within
      * @return the existing or newly saved membership
-     * @throws EmployeeNotFoundException if the employee does not exist
-     * @throws EmployeeGroupNotFoundException if the group does not exist
-     * @throws EmployeeGroupValidationException if the pair crosses organizations
+     * @throws EmployeeNotFoundException if the employee does not exist in
+     *         the brand
+     * @throws EmployeeGroupNotFoundException if the group does not exist in
+     *         the brand
      */
-    public EmployeeGroupMembership addMembership(Long employeeId, Long employeeGroupId) {
-        Employee employee = employeeRepo.findById(employeeId)
+    public EmployeeGroupMembership addMembership(Long employeeId, Long employeeGroupId, Long brandId) {
+        Employee employee = employeeRepo.findByIdAndOrganizationId(employeeId, brandId)
                 .orElseThrow(() -> new EmployeeNotFoundException(employeeId));
-        EmployeeGroup group = employeeGroupRepo.findById(employeeGroupId)
+        EmployeeGroup group = employeeGroupRepo.findByIdAndOrganizationId(employeeGroupId, brandId)
                 .orElseThrow(() -> new EmployeeGroupNotFoundException(employeeGroupId));
-        if (!sameOrganization(employee, group)) {
-            throw new EmployeeGroupValidationException(
-                    "Employee and employee group must belong to the same organization: employeeId="
-                            + employeeId + ", employeeGroupId=" + employeeGroupId);
-        }
         return membershipRepo.findByEmployeeIdAndEmployeeGroupId(employeeId, employeeGroupId)
                 .orElseGet(() -> insertOrRecoverConcurrentDuplicate(employee, group,
                         employeeId, employeeGroupId));
@@ -168,36 +163,38 @@ public class EmployeeGroupMembershipService {
     /**
      * Detach an employee from an employee group. Removing a missing
      * membership is a no-op so the endpoint is idempotent. Neither the
-     * employee nor the group is deleted.
+     * employee nor the group is deleted, and both must belong to the
+     * caller's brand.
      * @param employeeId the employee ID
      * @param employeeGroupId the employee group ID
-     * @throws EmployeeNotFoundException if the employee does not exist
-     * @throws EmployeeGroupNotFoundException if the group does not exist
-     * @throws EmployeeGroupValidationException if the pair crosses organizations
+     * @param brandId the organization the caller may act within
+     * @throws EmployeeNotFoundException if the employee does not exist in
+     *         the brand
+     * @throws EmployeeGroupNotFoundException if the group does not exist in
+     *         the brand
      */
     @Transactional
-    public void removeMembership(Long employeeId, Long employeeGroupId) {
-        Employee employee = employeeRepo.findById(employeeId)
-                .orElseThrow(() -> new EmployeeNotFoundException(employeeId));
-        EmployeeGroup group = employeeGroupRepo.findById(employeeGroupId)
-                .orElseThrow(() -> new EmployeeGroupNotFoundException(employeeGroupId));
-        if (!sameOrganization(employee, group)) {
-            throw new EmployeeGroupValidationException(
-                    "Employee and employee group must belong to the same organization: employeeId="
-                            + employeeId + ", employeeGroupId=" + employeeGroupId);
+    public void removeMembership(Long employeeId, Long employeeGroupId, Long brandId) {
+        if (employeeRepo.findByIdAndOrganizationId(employeeId, brandId).isEmpty()) {
+            throw new EmployeeNotFoundException(employeeId);
+        }
+        if (employeeGroupRepo.findByIdAndOrganizationId(employeeGroupId, brandId).isEmpty()) {
+            throw new EmployeeGroupNotFoundException(employeeGroupId);
         }
         membershipRepo.findByEmployeeIdAndEmployeeGroupId(employeeId, employeeGroupId)
                 .ifPresent(membershipRepo::delete);
     }
 
     /**
-     * List the groups an employee belongs to.
+     * List the groups an employee belongs to, within the caller's brand.
      * @param employeeId the employee ID
+     * @param brandId the organization the caller may act within
      * @return the groups the employee is attached to (empty when none)
-     * @throws EmployeeNotFoundException if the employee does not exist
+     * @throws EmployeeNotFoundException if the employee does not exist in
+     *         the brand
      */
-    public List<EmployeeGroup> listGroupsForEmployee(Long employeeId) {
-        if (!employeeRepo.existsById(employeeId)) {
+    public List<EmployeeGroup> listGroupsForEmployee(Long employeeId, Long brandId) {
+        if (employeeRepo.findByIdAndOrganizationId(employeeId, brandId).isEmpty()) {
             throw new EmployeeNotFoundException(employeeId);
         }
         return membershipRepo.findByEmployeeId(employeeId).stream()
@@ -206,32 +203,19 @@ public class EmployeeGroupMembershipService {
     }
 
     /**
-     * List the employees belonging to a group.
+     * List the employees belonging to a group, within the caller's brand.
      * @param employeeGroupId the employee group ID
+     * @param brandId the organization the caller may act within
      * @return the employees attached to the group (empty when none)
-     * @throws EmployeeGroupNotFoundException if the group does not exist
+     * @throws EmployeeGroupNotFoundException if the group does not exist in
+     *         the brand
      */
-    public List<Employee> listEmployeesForGroup(Long employeeGroupId) {
-        if (!employeeGroupRepo.existsById(employeeGroupId)) {
+    public List<Employee> listEmployeesForGroup(Long employeeGroupId, Long brandId) {
+        if (employeeGroupRepo.findByIdAndOrganizationId(employeeGroupId, brandId).isEmpty()) {
             throw new EmployeeGroupNotFoundException(employeeGroupId);
         }
         return membershipRepo.findByEmployeeGroupId(employeeGroupId).stream()
                 .map(EmployeeGroupMembership::getEmployee)
                 .toList();
-    }
-
-    /**
-     * Compare the owning organization IDs of an employee and a group.
-     * Both sides are required to reference a persisted organization at
-     * creation, so the null-safe comparison is defensive against a
-     * partially loaded graph rather than a real schema option.
-     * @param employee the resolved employee
-     * @param group the resolved group
-     * @return {@code true} when both belong to the same organization
-     */
-    private static boolean sameOrganization(Employee employee, EmployeeGroup group) {
-        Long employeeOrgId = employee.getOrganization() == null ? null : employee.getOrganization().getId();
-        Long groupOrgId = group.getOrganization() == null ? null : group.getOrganization().getId();
-        return Objects.equals(employeeOrgId, groupOrgId);
     }
 }

@@ -236,10 +236,31 @@ How the boundary is built:
   from the issuer, so application startup makes no call to the provider and the
   service boots during a provider outage.
 - **`brand-admin` is the coarse gate only.** It answers "may this account enter
-  the back office at all". Per-endpoint brand confinement (`organization_id`)
-  and pagination are the next step within M3; franchisee subtrees and job-role
-  permissions arrive with M4. Until the brand check lands, every back-office
-  caller can read and write every brand.
+  the back office at all". Brand confinement now sits underneath it - see
+  [Brand confinement](#brand-confinement). Pagination is the next step within
+  M3; franchisee subtrees and job-role permissions arrive with M4.
+
+### Brand confinement
+
+A principal's brand is the `organization_id` of the employee linked to its
+token subject, re-read on every request. Every management route threads that
+value from the controller down to the query predicate:
+
+- **Out-of-brand records answer `404`.** The brand is part of the lookup
+  (`findByIdAndOrganizationId`, `existsByIdAndOrganizationId`) rather than a
+  check applied after loading a row, so there is no code path that can observe
+  another brand's record and then decide to hide it. A foreign ID is
+  indistinguishable from a missing one, including for lists, which return only
+  the caller's brand.
+- **Creating or deleting an organization answers `403`**, with
+  `title: "Outside the brand"` and the refused action in `detail`. Brand
+  scoping confines a caller to one organization, so those two actions have no
+  brand they could be performed in; they belong to a platform-level role.
+- **Join rows cannot straddle brands.** `EmployeeGroupMembership` and
+  `EmployeeStoreAssignment` resolve their organization from the pair they join
+  and reject cross-organization pairs, backed by composite foreign keys
+  (V15/V16). The service-level checks are therefore redundant and are gone -
+  the constraint lives where it cannot be bypassed.
 
 Configuration (see `app/src/main/resources/application.properties`, all
 overridable via environment variables):

@@ -3,6 +3,7 @@ package com.example.posapp.controller;
 import java.util.List;
 import java.util.Optional;
 
+import static com.example.posapp.controller.BrandScopeTestSupport.BRAND_ID;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
@@ -18,6 +19,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,8 +33,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.example.posapp.entity.EmployeeGroup;
 import com.example.posapp.entity.Organization;
 import com.example.posapp.entity.Store;
+import com.example.posapp.exception.BrandScopeException;
 import com.example.posapp.exception.OrganizationNotFoundException;
-import com.example.posapp.exception.OrganizationValidationException;
 import com.example.posapp.service.OrganizationService;
 
 /**
@@ -41,6 +44,13 @@ import com.example.posapp.service.OrganizationService;
  * tests verify the HTTP contract only: routing, status codes, the JSON
  * representation of organizations and their stores, and the RFC 9457
  * problem-details responses returned for client errors.
+ * </p>
+ * <p>
+ * The back office is scoped to one brand, so the listing and the lookups
+ * carry the caller's brand and another brand answers {@code 404}. Creating
+ * and deleting a brand answer {@code 403}: the service refuses them for
+ * every brand administrator, and these tests assert that the refusal is
+ * surfaced rather than that it is bypassed.
  * </p>
  */
 @WebMvcTest(OrganizationController.class)
@@ -53,6 +63,16 @@ class OrganizationControllerTest {
     @MockitoBean
     private OrganizationService organizationService;
 
+    @BeforeEach
+    void signIn() {
+        BrandScopeTestSupport.signIn();
+    }
+
+    @AfterEach
+    void signOut() {
+        BrandScopeTestSupport.signOut();
+    }
+
     private static Organization acme() {
         return new Organization("Acme Restaurants");
     }
@@ -62,22 +82,24 @@ class OrganizationControllerTest {
     @Test
     @DisplayName("GET /api/v1/organizations returns an empty list")
     void listOrganizationsEmpty() throws Exception {
-        when(organizationService.getAllOrganizations()).thenReturn(List.of());
+        when(organizationService.getAllOrganizations(BRAND_ID)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/v1/organizations"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$", hasSize(0)));
+
+        verify(organizationService).getAllOrganizations(BRAND_ID);
     }
 
     @Test
-    @DisplayName("GET /api/v1/organizations returns every organization without embedding stores")
-    void listOrganizationsReturnsAll() throws Exception {
-        when(organizationService.getAllOrganizations()).thenReturn(List.of(acme(), acme()));
+    @DisplayName("GET /api/v1/organizations returns the caller's brand alone, without embedding stores")
+    void listOrganizationsReturnsTheBrand() throws Exception {
+        when(organizationService.getAllOrganizations(BRAND_ID)).thenReturn(List.of(acme()));
 
         mockMvc.perform(get("/api/v1/organizations"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))
+                .andExpect(jsonPath("$", hasSize(1)))
                 .andExpect(jsonPath("$[0].name").value("Acme Restaurants"))
                 .andExpect(jsonPath("$[0].stores").doesNotExist());
     }
@@ -87,8 +109,8 @@ class OrganizationControllerTest {
     @Test
     @DisplayName("GET /api/v1/organizations/{id} returns only the organization; stores come from the sub-resource")
     void getOrganizationReturnsStores() throws Exception {
-        Organization acme = acme();
-        when(organizationService.getOrganizationById(1L)).thenReturn(Optional.of(acme));
+        when(organizationService.getOrganizationById(1L, BRAND_ID))
+                .thenReturn(Optional.of(acme()));
 
         mockMvc.perform(get("/api/v1/organizations/1"))
                 .andExpect(status().isOk())
@@ -100,13 +122,26 @@ class OrganizationControllerTest {
     @Test
     @DisplayName("GET /api/v1/organizations/{id} returns 404 ProblemDetail when missing")
     void getOrganizationMissingReturns404() throws Exception {
-        when(organizationService.getOrganizationById(99L)).thenReturn(Optional.empty());
+        when(organizationService.getOrganizationById(99L, BRAND_ID))
+                .thenReturn(Optional.empty());
 
         mockMvc.perform(get("/api/v1/organizations/99"))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.title").value("Organization not found"))
                 .andExpect(jsonPath("$.detail").value(containsString("99")));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/organizations/{id} reports another brand's organization as 404")
+    void getOrganizationOutsideBrandReturns404() throws Exception {
+        when(organizationService.getOrganizationById(42L, BRAND_ID)).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/v1/organizations/42"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Organization not found"));
+
+        verify(organizationService).getOrganizationById(42L, BRAND_ID);
     }
 
     @Test
@@ -119,31 +154,18 @@ class OrganizationControllerTest {
     // --- POST /api/v1/organizations ---
 
     @Test
-    @DisplayName("POST /api/v1/organizations creates a new organization and returns 201")
-    void createOrganizationReturns201() throws Exception {
-        when(organizationService.createOrganization(any(Organization.class)))
-                .thenAnswer(inv -> inv.getArgument(0));
+    @DisplayName("POST /api/v1/organizations refuses a brand administrator with 403")
+    void createOrganizationReturns403() throws Exception {
+        when(organizationService.createOrganization(any(Organization.class), eq(BRAND_ID)))
+                .thenThrow(new BrandScopeException("creating an organization"));
 
         mockMvc.perform(post("/api/v1/organizations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Acme Restaurants\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.name").value("Acme Restaurants"))
-                .andExpect(jsonPath("$.active").value(true))
-                .andExpect(jsonPath("$.stores").doesNotExist());
-    }
-
-    @Test
-    @DisplayName("POST /api/v1/organizations honours active=false")
-    void createOrganizationHonoursInactive() throws Exception {
-        when(organizationService.createOrganization(any(Organization.class)))
-                .thenAnswer(inv -> inv.getArgument(0));
-
-        mockMvc.perform(post("/api/v1/organizations")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Acme Restaurants\",\"active\":false}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.active").value(false));
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.title").value("Outside the brand"))
+                .andExpect(jsonPath("$.detail").value(containsString("creating an organization")));
     }
 
     @Test
@@ -168,22 +190,6 @@ class OrganizationControllerTest {
                 .andExpect(jsonPath("$.title").value("Validation failed"));
     }
 
-    @Test
-    @DisplayName("POST /api/v1/organizations surfaces duplicate name as 400 ProblemDetail")
-    void createOrganizationDuplicateReturns400() throws Exception {
-        when(organizationService.createOrganization(any(Organization.class)))
-                .thenThrow(new OrganizationValidationException(
-                        "Organization name already exists: Acme Restaurants"));
-
-        mockMvc.perform(post("/api/v1/organizations")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Acme Restaurants\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.title").value("Invalid organization"))
-                .andExpect(jsonPath("$.detail").value(containsString("already exists")));
-    }
-
     // --- PUT /api/v1/organizations/{id} ---
 
     @Test
@@ -191,7 +197,7 @@ class OrganizationControllerTest {
     void updateOrganizationReturns200() throws Exception {
         Organization updated = acme();
         updated.setActive(false);
-        when(organizationService.updateOrganization(eq(1L), any(Organization.class)))
+        when(organizationService.updateOrganization(eq(1L), any(Organization.class), eq(BRAND_ID)))
                 .thenReturn(updated);
 
         mockMvc.perform(put("/api/v1/organizations/1")
@@ -205,7 +211,7 @@ class OrganizationControllerTest {
     @Test
     @DisplayName("PUT /api/v1/organizations/{id} returns 404 when missing")
     void updateOrganizationMissingReturns404() throws Exception {
-        when(organizationService.updateOrganization(eq(99L), any(Organization.class)))
+        when(organizationService.updateOrganization(eq(99L), any(Organization.class), eq(BRAND_ID)))
                 .thenThrow(new OrganizationNotFoundException(99L));
 
         mockMvc.perform(put("/api/v1/organizations/99")
@@ -228,37 +234,16 @@ class OrganizationControllerTest {
     // --- DELETE /api/v1/organizations/{id} ---
 
     @Test
-    @DisplayName("DELETE /api/v1/organizations/{id} returns 204")
-    void deleteOrganizationReturns204() throws Exception {
-        mockMvc.perform(delete("/api/v1/organizations/1"))
-                .andExpect(status().isNoContent());
-
-        verify(organizationService).deleteOrganization(1L);
-    }
-
-    @Test
-    @DisplayName("DELETE /api/v1/organizations/{id} returns 404 when missing")
-    void deleteOrganizationMissingReturns404() throws Exception {
-        doThrow(new OrganizationNotFoundException(99L))
-                .when(organizationService).deleteOrganization(99L);
-
-        mockMvc.perform(delete("/api/v1/organizations/99"))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.title").value("Organization not found"));
-    }
-
-    @Test
-    @DisplayName("DELETE /api/v1/organizations/{id} returns 400 when the organization still owns stores")
-    void deleteOrganizationWithStoresReturns400() throws Exception {
-        doThrow(new OrganizationValidationException(
-                "Cannot delete organization still owning stores: 1"))
-                .when(organizationService).deleteOrganization(1L);
+    @DisplayName("DELETE /api/v1/organizations/{id} refuses a brand administrator with 403")
+    void deleteOrganizationReturns403() throws Exception {
+        doThrow(new BrandScopeException("deleting an organization"))
+                .when(organizationService).deleteOrganization(1L, BRAND_ID);
 
         mockMvc.perform(delete("/api/v1/organizations/1"))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.title").value("Invalid organization"))
-                .andExpect(jsonPath("$.detail").value(containsString("still owning stores")));
+                .andExpect(jsonPath("$.title").value("Outside the brand"))
+                .andExpect(jsonPath("$.detail").value(containsString("deleting an organization")));
     }
 
     // --- GET /api/v1/organizations/{id}/stores ---
@@ -271,7 +256,7 @@ class OrganizationControllerTest {
                 "123 Main St", "90001", "America/Los_Angeles");
         Store airport = new Store(acme, "Airport", "US", "CA", "San Francisco",
                 "55 Sky Rd", "94102", "America/Los_Angeles");
-        when(organizationService.listStores(1L)).thenReturn(List.of(downtown, airport));
+        when(organizationService.listStores(1L, BRAND_ID)).thenReturn(List.of(downtown, airport));
 
         mockMvc.perform(get("/api/v1/organizations/1/stores"))
                 .andExpect(status().isOk())
@@ -283,7 +268,7 @@ class OrganizationControllerTest {
     @Test
     @DisplayName("GET /api/v1/organizations/{id}/stores returns 404 when the organization is missing")
     void listStoresMissingOrganizationReturns404() throws Exception {
-        when(organizationService.listStores(99L))
+        when(organizationService.listStores(99L, BRAND_ID))
                 .thenThrow(new OrganizationNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/organizations/99/stores"))
@@ -294,7 +279,7 @@ class OrganizationControllerTest {
     @Test
     @DisplayName("GET /api/v1/organizations/{id}/stores returns an empty array for an organization with no stores")
     void listStoresEmptyReturnsEmptyArray() throws Exception {
-        when(organizationService.listStores(1L)).thenReturn(List.of());
+        when(organizationService.listStores(1L, BRAND_ID)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/v1/organizations/1/stores"))
                 .andExpect(status().isOk())
@@ -311,7 +296,8 @@ class OrganizationControllerTest {
         front.setOrganization(acme);
         EmployeeGroup back = new EmployeeGroup("Back of House");
         back.setOrganization(acme);
-        when(organizationService.listRootEmployeeGroups(1L)).thenReturn(List.of(front, back));
+        when(organizationService.listRootEmployeeGroups(1L, BRAND_ID))
+                .thenReturn(List.of(front, back));
 
         mockMvc.perform(get("/api/v1/organizations/1/employee-groups"))
                 .andExpect(status().isOk())
@@ -324,7 +310,7 @@ class OrganizationControllerTest {
     @Test
     @DisplayName("GET /api/v1/organizations/{id}/employee-groups returns an empty array when none exist")
     void listEmployeeGroupsEmptyReturnsEmptyArray() throws Exception {
-        when(organizationService.listRootEmployeeGroups(1L)).thenReturn(List.of());
+        when(organizationService.listRootEmployeeGroups(1L, BRAND_ID)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/v1/organizations/1/employee-groups"))
                 .andExpect(status().isOk())
@@ -334,7 +320,7 @@ class OrganizationControllerTest {
     @Test
     @DisplayName("GET /api/v1/organizations/{id}/employee-groups returns 404 when the organization is missing")
     void listEmployeeGroupsMissingOrganizationReturns404() throws Exception {
-        when(organizationService.listRootEmployeeGroups(99L))
+        when(organizationService.listRootEmployeeGroups(99L, BRAND_ID))
                 .thenThrow(new OrganizationNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/organizations/99/employee-groups"))

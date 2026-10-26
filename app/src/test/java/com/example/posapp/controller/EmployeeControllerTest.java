@@ -3,6 +3,7 @@ package com.example.posapp.controller;
 import java.util.List;
 import java.util.Optional;
 
+import static com.example.posapp.controller.BrandScopeTestSupport.BRAND_ID;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
@@ -18,6 +19,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +45,12 @@ import com.example.posapp.service.EmployeeService;
  * returned for client errors. Entities are never persisted, so only the
  * non-ID fields of the representation are asserted here.
  * </p>
+ * <p>
+ * Every handler is confined to the caller's brand, taken from the resolved
+ * back-office identity, so these tests also assert that the brand each
+ * request acts within reaches the service. See {@link BrandScopeTestSupport}
+ * for why the identity has to be installed by hand.
+ * </p>
  */
 @WebMvcTest(EmployeeController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -53,6 +62,16 @@ class EmployeeControllerTest {
     @MockitoBean
     private EmployeeService employeeService;
 
+    @BeforeEach
+    void signIn() {
+        BrandScopeTestSupport.signIn();
+    }
+
+    @AfterEach
+    void signOut() {
+        BrandScopeTestSupport.signOut();
+    }
+
     private static Employee employee(String name) {
         return new Employee(name);
     }
@@ -62,7 +81,7 @@ class EmployeeControllerTest {
     @Test
     @DisplayName("GET /api/v1/employees returns an empty list")
     void listEmployeesEmpty() throws Exception {
-        when(employeeService.getAllEmployees()).thenReturn(List.of());
+        when(employeeService.getAllEmployees(BRAND_ID)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/v1/employees"))
                 .andExpect(status().isOk())
@@ -75,7 +94,8 @@ class EmployeeControllerTest {
     void listEmployeesReturnsAll() throws Exception {
         Employee ada = employee("Ada Lovelace");
         ada.setEmail("ada@example.com");
-        when(employeeService.getAllEmployees()).thenReturn(List.of(ada, employee("Grace Hopper")));
+        when(employeeService.getAllEmployees(BRAND_ID))
+                .thenReturn(List.of(ada, employee("Grace Hopper")));
 
         mockMvc.perform(get("/api/v1/employees"))
                 .andExpect(status().isOk())
@@ -83,6 +103,9 @@ class EmployeeControllerTest {
                 .andExpect(jsonPath("$[0].name").value("Ada Lovelace"))
                 .andExpect(jsonPath("$[0].email").value("ada@example.com"))
                 .andExpect(jsonPath("$[1].name").value("Grace Hopper"));
+
+        // The listing is the caller's brand, not every employee in the database.
+        verify(employeeService).getAllEmployees(BRAND_ID);
     }
 
     // --- GET /api/v1/employees/{id} ---
@@ -92,7 +115,7 @@ class EmployeeControllerTest {
     void getEmployeeReturns200() throws Exception {
         Employee ada = employee("Ada Lovelace");
         ada.setEmail("ada@example.com");
-        when(employeeService.getEmployeeById(1L)).thenReturn(Optional.of(ada));
+        when(employeeService.getEmployeeById(1L, BRAND_ID)).thenReturn(Optional.of(ada));
 
         mockMvc.perform(get("/api/v1/employees/1"))
                 .andExpect(status().isOk())
@@ -104,7 +127,7 @@ class EmployeeControllerTest {
     @Test
     @DisplayName("GET /api/v1/employees/{id} returns 404 ProblemDetail when missing")
     void getEmployeeMissingReturns404() throws Exception {
-        when(employeeService.getEmployeeById(99L)).thenReturn(Optional.empty());
+        when(employeeService.getEmployeeById(99L, BRAND_ID)).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/api/v1/employees/99"))
                 .andExpect(status().isNotFound())
@@ -125,7 +148,7 @@ class EmployeeControllerTest {
     @Test
     @DisplayName("POST /api/v1/employees creates an employee and returns 201")
     void createEmployeeReturns201() throws Exception {
-        when(employeeService.createEmployee(any(Employee.class), eq(1L)))
+        when(employeeService.createEmployee(any(Employee.class), eq(1L), eq(BRAND_ID)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
         mockMvc.perform(post("/api/v1/employees")
@@ -139,7 +162,7 @@ class EmployeeControllerTest {
     @Test
     @DisplayName("POST /api/v1/employees honours email and active=false")
     void createEmployeeHonoursEmailAndInactive() throws Exception {
-        when(employeeService.createEmployee(any(Employee.class), eq(1L)))
+        when(employeeService.createEmployee(any(Employee.class), eq(1L), eq(BRAND_ID)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
         mockMvc.perform(post("/api/v1/employees")
@@ -199,7 +222,7 @@ class EmployeeControllerTest {
     @Test
     @DisplayName("POST /api/v1/employees surfaces an unknown organization as 404 ProblemDetail")
     void createEmployeeUnknownOrganizationReturns404() throws Exception {
-        when(employeeService.createEmployee(any(Employee.class), eq(99L)))
+        when(employeeService.createEmployee(any(Employee.class), eq(99L), eq(BRAND_ID)))
                 .thenThrow(new OrganizationNotFoundException(99L));
 
         mockMvc.perform(post("/api/v1/employees")
@@ -214,7 +237,7 @@ class EmployeeControllerTest {
     @Test
     @DisplayName("POST /api/v1/employees surfaces a duplicate email as 400 ProblemDetail")
     void createEmployeeDuplicateEmailReturns400() throws Exception {
-        when(employeeService.createEmployee(any(Employee.class), eq(1L)))
+        when(employeeService.createEmployee(any(Employee.class), eq(1L), eq(BRAND_ID)))
                 .thenThrow(new EmployeeValidationException(
                         "Email already exists in organization: organizationId=1,"
                                 + " email=ada@example.com"));
@@ -236,7 +259,7 @@ class EmployeeControllerTest {
         Employee updated = employee("Ada Lovelace");
         updated.setEmail("ada@example.com");
         updated.setActive(false);
-        when(employeeService.updateEmployee(eq(1L), any(Employee.class), eq(1L)))
+        when(employeeService.updateEmployee(eq(1L), any(Employee.class), eq(1L), eq(BRAND_ID)))
                 .thenReturn(updated);
 
         mockMvc.perform(put("/api/v1/employees/1")
@@ -252,7 +275,7 @@ class EmployeeControllerTest {
     @Test
     @DisplayName("PUT /api/v1/employees/{id} returns 404 when missing")
     void updateEmployeeMissingReturns404() throws Exception {
-        when(employeeService.updateEmployee(eq(99L), any(Employee.class), eq(1L)))
+        when(employeeService.updateEmployee(eq(99L), any(Employee.class), eq(1L), eq(BRAND_ID)))
                 .thenThrow(new EmployeeNotFoundException(99L));
 
         mockMvc.perform(put("/api/v1/employees/99")
@@ -291,14 +314,14 @@ class EmployeeControllerTest {
         mockMvc.perform(delete("/api/v1/employees/1"))
                 .andExpect(status().isNoContent());
 
-        verify(employeeService).deleteEmployee(1L);
+        verify(employeeService).deleteEmployee(1L, BRAND_ID);
     }
 
     @Test
     @DisplayName("DELETE /api/v1/employees/{id} returns 404 when missing")
     void deleteEmployeeMissingReturns404() throws Exception {
         doThrow(new EmployeeNotFoundException(99L))
-                .when(employeeService).deleteEmployee(99L);
+                .when(employeeService).deleteEmployee(99L, BRAND_ID);
 
         mockMvc.perform(delete("/api/v1/employees/99"))
                 .andExpect(status().isNotFound())

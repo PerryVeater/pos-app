@@ -1,5 +1,6 @@
 package com.example.posapp.repository;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -68,4 +69,25 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
      */
     @EntityGraph(attributePaths = {"organization"})
     Optional<Employee> findByIdpSubject(String idpSubject);
+
+    /**
+     * Resolve an employee only when it belongs to the given organization.
+     * <p>
+     * The brand is part of the predicate rather than a separate check so a
+     * row belonging to another brand is indistinguishable from a row that
+     * does not exist - the same {@code 404} either way, with no query that
+     * could return it in the first place.
+     * </p>
+     * @param id the employee ID
+     * @param organizationId the brand the caller may act within
+     * @return the employee, or empty when it does not exist in that brand
+     */
+    Optional<Employee> findByIdAndOrganizationId(Long id, Long organizationId);
+
+    /**
+     * List every employee owned by the given organization.
+     * @param organizationId the brand the caller may act within
+     * @return the employees of that organization
+     */
+    List<Employee> findByOrganizationId(Long organizationId);
 }

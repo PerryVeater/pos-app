@@ -1,5 +1,6 @@
 package com.example.posapp.controller;
 
+import static com.example.posapp.controller.BrandScopeTestSupport.BRAND_ID;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -12,6 +13,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +40,10 @@ import com.example.posapp.service.EmployeePinService;
  * the uniqueness enforcement are covered by the service unit tests and the
  * Testcontainers integration tests.
  * </p>
+ * <p>
+ * Both routes are confined to the caller's brand, so these tests also assert
+ * that the brand from the resolved back-office identity reaches the service.
+ * </p>
  */
 @WebMvcTest(EmployeePinController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -47,6 +54,16 @@ class EmployeePinControllerTest {
 
     @MockitoBean
     private EmployeePinService pinService;
+
+    @BeforeEach
+    void signIn() {
+        BrandScopeTestSupport.signIn();
+    }
+
+    @AfterEach
+    void signOut() {
+        BrandScopeTestSupport.signOut();
+    }
 
     // --- PUT /api/v1/employees/{employeeId}/pin ---
 
@@ -59,7 +76,7 @@ class EmployeePinControllerTest {
                 .andExpect(status().isNoContent())
                 .andExpect(content().string(""));
 
-        verify(pinService).setPin(1L, "0421");
+        verify(pinService).setPin(1L, "0421", BRAND_ID);
     }
 
     @Test
@@ -70,7 +87,7 @@ class EmployeePinControllerTest {
                         .content("{\"pin\":\"0012\"}"))
                 .andExpect(status().isNoContent());
 
-        verify(pinService).setPin(1L, "0012");
+        verify(pinService).setPin(1L, "0012", BRAND_ID);
     }
 
     @Test
@@ -82,14 +99,14 @@ class EmployeePinControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.title").value("Validation failed"));
 
-        verify(pinService, never()).setPin(anyLong(), anyString());
+        verify(pinService, never()).setPin(anyLong(), anyString(), anyLong());
     }
 
     @Test
     @DisplayName("PUT /pin returns 404 when the employee is missing")
     void setPinMissingEmployeeReturns404() throws Exception {
         doThrow(new EmployeeNotFoundException(99L))
-                .when(pinService).setPin(99L, "1234");
+                .when(pinService).setPin(99L, "1234", BRAND_ID);
 
         mockMvc.perform(put("/api/v1/employees/99/pin")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -104,7 +121,7 @@ class EmployeePinControllerTest {
     @DisplayName("PUT /pin returns 400 for a malformed PIN")
     void setPinMalformedReturns400() throws Exception {
         doThrow(new EmployeePinValidationException("PIN must be 4 to 6 digits"))
-                .when(pinService).setPin(1L, "12");
+                .when(pinService).setPin(1L, "12", BRAND_ID);
 
         mockMvc.perform(put("/api/v1/employees/1/pin")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -119,7 +136,7 @@ class EmployeePinControllerTest {
     void setPinConflictReturns400() throws Exception {
         doThrow(new EmployeePinValidationException(
                 "PIN is already in use by another employee assigned to the same store: employeeId=1"))
-                .when(pinService).setPin(1L, "1234");
+                .when(pinService).setPin(1L, "1234", BRAND_ID);
 
         mockMvc.perform(put("/api/v1/employees/1/pin")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -140,7 +157,7 @@ class EmployeePinControllerTest {
         mockMvc.perform(delete("/api/v1/employees/1/pin"))
                 .andExpect(status().isNoContent());
 
-        verify(pinService).removePin(1L);
+        verify(pinService).removePin(1L, BRAND_ID);
     }
 
     @Test
@@ -151,13 +168,14 @@ class EmployeePinControllerTest {
         mockMvc.perform(delete("/api/v1/employees/1/pin"))
                 .andExpect(status().isNoContent());
 
-        verify(pinService).removePin(1L);
+        verify(pinService).removePin(1L, BRAND_ID);
     }
 
     @Test
     @DisplayName("DELETE /pin returns 404 when the employee is missing")
     void removePinMissingEmployeeReturns404() throws Exception {
-        doThrow(new EmployeeNotFoundException(99L)).when(pinService).removePin(99L);
+        doThrow(new EmployeeNotFoundException(99L))
+                .when(pinService).removePin(99L, BRAND_ID);
 
         mockMvc.perform(delete("/api/v1/employees/99/pin"))
                 .andExpect(status().isNotFound())
@@ -170,6 +188,6 @@ class EmployeePinControllerTest {
         mockMvc.perform(delete("/api/v1/employees/abc/pin"))
                 .andExpect(status().isBadRequest());
 
-        verify(pinService, never()).removePin(anyLong());
+        verify(pinService, never()).removePin(anyLong(), anyLong());
     }
 }

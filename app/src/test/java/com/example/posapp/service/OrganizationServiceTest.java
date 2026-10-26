@@ -20,10 +20,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.example.posapp.entity.EmployeeGroup;
 import com.example.posapp.entity.Organization;
 import com.example.posapp.entity.Store;
+import com.example.posapp.exception.BrandScopeException;
 import com.example.posapp.exception.OrganizationNotFoundException;
 import com.example.posapp.exception.OrganizationValidationException;
 import com.example.posapp.repository.EmployeeGroupRepository;
-import com.example.posapp.repository.EmployeeRepository;
 import com.example.posapp.repository.OrganizationRepository;
 import com.example.posapp.repository.StoreRepository;
 
@@ -31,14 +31,28 @@ import com.example.posapp.repository.StoreRepository;
  * Unit tests for the {@link OrganizationService} business rules.
  * <p>
  * The repositories are mocked, so these tests exercise the service in
- * isolation: name validation, duplicate-name rejection, the delete guards
- * that keep an organization alive while it still owns stores, employee
- * groups, or employees, and the store and root employee group listing
- * sub-resources. No Spring context or database is required.
+ * isolation: name validation and name uniqueness on update, the reads
+ * confined to the caller's brand, and the store and root employee group
+ * listing sub-resources.
+ * </p>
+ * <p>
+ * Creating or destroying a brand is outside the reach of a brand
+ * administrator, so both lifecycle operations are asserted to refuse with
+ * {@link BrandScopeException} before touching a repository. The
+ * name-uniqueness check on create and the delete guards that keep an
+ * organization alive while it still owns stores, employee groups, or
+ * employees are suspended along with those operations and are documented on
+ * the service; a platform-level role will own them.
  * </p>
  */
 @ExtendWith(MockitoExtension.class)
 class OrganizationServiceTest {
+
+    /** The caller's brand, and the only organization these tests may name. */
+    private static final long BRAND = 1L;
+
+    /** A second brand the caller must never reach. */
+    private static final long OTHER_BRAND = 2L;
 
     @Mock
     private OrganizationRepository organizationRepo;
@@ -48,9 +62,6 @@ class OrganizationServiceTest {
 
     @Mock
     private EmployeeGroupRepository employeeGroupRepo;
-
-    @Mock
-    private EmployeeRepository employeeRepo;
 
     @InjectMocks
     private OrganizationService organizationService;
@@ -80,47 +91,25 @@ class OrganizationServiceTest {
     // --- createOrganization ---
 
     @Test
-    @DisplayName("createOrganization: valid organization is saved and returned")
-    void createOrganizationValidIsSaved() {
+    @DisplayName("createOrganization: a brand administrator cannot create a second tenant")
+    void createOrganizationAlwaysRefuses() {
         Organization input = org("Acme Restaurants");
-        when(organizationRepo.existsByName("Acme Restaurants")).thenReturn(false);
-        when(organizationRepo.save(any(Organization.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Organization saved = organizationService.createOrganization(input);
-
-        assertThat(saved.getName()).isEqualTo("Acme Restaurants");
-        assertThat(saved.isActive()).isTrue();
-        verify(organizationRepo).save(input);
-    }
-
-    @Test
-    @DisplayName("createOrganization: blank name is rejected")
-    void createOrganizationBlankNameThrows() {
-        assertThatThrownBy(() -> organizationService.createOrganization(org("   ")))
-                .isInstanceOf(OrganizationValidationException.class)
-                .hasMessage("Name must be provided");
+        assertThatThrownBy(() -> organizationService.createOrganization(input, BRAND))
+                .isInstanceOf(BrandScopeException.class)
+                .hasMessageContaining("creating an organization");
 
         verify(organizationRepo, never()).save(any());
+        verify(organizationRepo, never()).existsByName(any());
     }
 
     @Test
-    @DisplayName("createOrganization: missing name is rejected")
-    void createOrganizationNullNameThrows() {
-        assertThatThrownBy(() -> organizationService.createOrganization(org(null)))
-                .isInstanceOf(OrganizationValidationException.class)
-                .hasMessage("Name must be provided");
-
-        verify(organizationRepo, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("createOrganization: duplicate name is rejected at the service layer")
-    void createOrganizationDuplicateNameThrows() {
-        when(organizationRepo.existsByName("Acme Restaurants")).thenReturn(true);
-
-        assertThatThrownBy(() -> organizationService.createOrganization(org("Acme Restaurants")))
-                .isInstanceOf(OrganizationValidationException.class)
-                .hasMessageContaining("Organization name already exists");
+    @DisplayName("createOrganization: the refusal does not depend on the payload or the brand")
+    void createOrganizationRefusesRegardlessOfInput() {
+        assertThatThrownBy(() -> organizationService.createOrganization(org(null), OTHER_BRAND))
+                .isInstanceOf(BrandScopeException.class);
+        assertThatThrownBy(() -> organizationService.createOrganization(null, BRAND))
+                .isInstanceOf(BrandScopeException.class);
 
         verify(organizationRepo, never()).save(any());
     }
@@ -133,11 +122,11 @@ class OrganizationServiceTest {
         Organization existing = org("Old Name");
         Organization replacement = org("New Name");
         replacement.setActive(false);
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(existing));
-        when(organizationRepo.existsByNameAndIdNot("New Name", 1L)).thenReturn(false);
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(existing));
+        when(organizationRepo.existsByNameAndIdNot("New Name", BRAND)).thenReturn(false);
         when(organizationRepo.save(any(Organization.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Organization updated = organizationService.updateOrganization(1L, replacement);
+        Organization updated = organizationService.updateOrganization(BRAND, replacement, BRAND);
 
         assertThat(updated.getName()).isEqualTo("New Name");
         assertThat(updated.isActive()).isFalse();
@@ -148,19 +137,30 @@ class OrganizationServiceTest {
     void updateOrganizationMissingThrows() {
         when(organizationRepo.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> organizationService.updateOrganization(99L, org("Whatever")))
+        assertThatThrownBy(() -> organizationService.updateOrganization(99L, org("Whatever"), 99L))
                 .isInstanceOf(OrganizationNotFoundException.class)
                 .hasMessageContaining("99");
+    }
+
+    @Test
+    @DisplayName("updateOrganization: another brand's organization is answered as not found")
+    void updateOrganizationOutsideBrandIsNotFound() {
+        assertThatThrownBy(() -> organizationService.updateOrganization(OTHER_BRAND, org("Globex"), BRAND))
+                .isInstanceOf(OrganizationNotFoundException.class)
+                .hasMessageContaining("2");
+
+        verify(organizationRepo, never()).findById(any());
+        verify(organizationRepo, never()).save(any());
     }
 
     @Test
     @DisplayName("updateOrganization: name used by another organization is rejected")
     void updateOrganizationDuplicateNameThrows() {
         Organization existing = org("Old");
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(existing));
-        when(organizationRepo.existsByNameAndIdNot("Taken", 1L)).thenReturn(true);
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(existing));
+        when(organizationRepo.existsByNameAndIdNot("Taken", BRAND)).thenReturn(true);
 
-        assertThatThrownBy(() -> organizationService.updateOrganization(1L, org("Taken")))
+        assertThatThrownBy(() -> organizationService.updateOrganization(BRAND, org("Taken"), BRAND))
                 .isInstanceOf(OrganizationValidationException.class)
                 .hasMessageContaining("Organization name already exists");
 
@@ -170,121 +170,84 @@ class OrganizationServiceTest {
     @Test
     @DisplayName("updateOrganization: blank name is rejected")
     void updateOrganizationBlankNameThrows() {
-        assertThatThrownBy(() -> organizationService.updateOrganization(1L, org("  ")))
+        assertThatThrownBy(() -> organizationService.updateOrganization(BRAND, org("  "), BRAND))
                 .isInstanceOf(OrganizationValidationException.class)
                 .hasMessage("Name must be provided");
+
+        verify(organizationRepo, never()).findById(any());
     }
 
     // --- deleteOrganization ---
 
     @Test
-    @DisplayName("deleteOrganization: repository deleteById is called when no stores remain")
-    void deleteOrganizationWithNoStoresSucceeds() {
-        when(organizationRepo.existsById(1L)).thenReturn(true);
-        when(storeRepo.countByOrganizationId(1L)).thenReturn(0L);
-
-        organizationService.deleteOrganization(1L);
-
-        verify(organizationRepo).deleteById(1L);
-    }
-
-    @Test
-    @DisplayName("deleteOrganization: rejects deletion when the organization still owns stores")
-    void deleteOrganizationWithStoresThrows() {
-        when(organizationRepo.existsById(2L)).thenReturn(true);
-        when(storeRepo.countByOrganizationId(2L)).thenReturn(3L);
-
-        assertThatThrownBy(() -> organizationService.deleteOrganization(2L))
-                .isInstanceOf(OrganizationValidationException.class)
-                .hasMessageContaining("still owning stores");
+    @DisplayName("deleteOrganization: a brand administrator cannot destroy the tenant")
+    void deleteOrganizationAlwaysRefuses() {
+        assertThatThrownBy(() -> organizationService.deleteOrganization(BRAND, BRAND))
+                .isInstanceOf(BrandScopeException.class)
+                .hasMessageContaining("deleting an organization");
 
         verify(organizationRepo, never()).deleteById(any());
-    }
-
-    @Test
-    @DisplayName("deleteOrganization: rejects deletion when the organization still owns employee groups")
-    void deleteOrganizationWithEmployeeGroupsThrows() {
-        when(organizationRepo.existsById(3L)).thenReturn(true);
-        when(storeRepo.countByOrganizationId(3L)).thenReturn(0L);
-        when(employeeGroupRepo.countByOrganizationId(3L)).thenReturn(1L);
-
-        assertThatThrownBy(() -> organizationService.deleteOrganization(3L))
-                .isInstanceOf(OrganizationValidationException.class)
-                .hasMessageContaining("still owning employee groups");
-
-        verify(organizationRepo, never()).deleteById(any());
-    }
-
-    @Test
-    @DisplayName("deleteOrganization: rejects deletion when the organization still owns employees")
-    void deleteOrganizationWithEmployeesThrows() {
-        when(organizationRepo.existsById(4L)).thenReturn(true);
-        when(storeRepo.countByOrganizationId(4L)).thenReturn(0L);
-        when(employeeGroupRepo.countByOrganizationId(4L)).thenReturn(0L);
-        when(employeeRepo.countByOrganizationId(4L)).thenReturn(2L);
-
-        assertThatThrownBy(() -> organizationService.deleteOrganization(4L))
-                .isInstanceOf(OrganizationValidationException.class)
-                .hasMessageContaining("still owning employees");
-
-        verify(organizationRepo, never()).deleteById(any());
-    }
-
-    @Test
-    @DisplayName("deleteOrganization: missing ID throws OrganizationNotFoundException")
-    void deleteOrganizationMissingThrows() {
-        when(organizationRepo.existsById(99L)).thenReturn(false);
-
-        assertThatThrownBy(() -> organizationService.deleteOrganization(99L))
-                .isInstanceOf(OrganizationNotFoundException.class)
-                .hasMessageContaining("99");
-
-        verify(organizationRepo, never()).deleteById(any());
+        verify(storeRepo, never()).countByOrganizationId(any());
     }
 
     // --- getAll / getById ---
 
     @Test
-    @DisplayName("getAllOrganizations: returns every organization")
-    void getAllOrganizationsReturnsAll() {
-        when(organizationRepo.findAll()).thenReturn(List.of(org("Acme"), org("Globex")));
+    @DisplayName("getAllOrganizations: the back office sees its own brand only")
+    void getAllOrganizationsReturnsOwnBrand() {
+        Organization brand = org("Acme");
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(brand));
 
-        List<Organization> all = organizationService.getAllOrganizations();
+        List<Organization> all = organizationService.getAllOrganizations(BRAND);
 
-        assertThat(all).hasSize(2)
-                .extracting(Organization::getName)
-                .containsExactly("Acme", "Globex");
+        assertThat(all).containsExactly(brand);
+        verify(organizationRepo, never()).findAll();
+    }
+
+    @Test
+    @DisplayName("getAllOrganizations: an unreadable brand yields an empty list rather than failing")
+    void getAllOrganizationsEmptyWhenBrandVanished() {
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.empty());
+
+        assertThat(organizationService.getAllOrganizations(BRAND)).isEmpty();
     }
 
     @Test
     @DisplayName("getOrganizationById: null ID throws IllegalArgumentException")
     void getOrganizationByIdNullThrows() {
-        assertThatThrownBy(() -> organizationService.getOrganizationById(null))
+        assertThatThrownBy(() -> organizationService.getOrganizationById(null, BRAND))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("ID cannot be null");
     }
 
     @Test
-    @DisplayName("getOrganizationById: delegates to the repository when the ID is present")
+    @DisplayName("getOrganizationById: delegates to the repository when the ID is the brand")
     void getOrganizationByIdDelegates() {
         Organization existing = org("Acme");
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(existing));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(existing));
 
-        assertThat(organizationService.getOrganizationById(1L)).contains(existing);
+        assertThat(organizationService.getOrganizationById(BRAND, BRAND)).contains(existing);
+    }
+
+    @Test
+    @DisplayName("getOrganizationById: another brand's organization is not visible")
+    void getOrganizationByIdOutsideBrandIsEmpty() {
+        assertThat(organizationService.getOrganizationById(OTHER_BRAND, BRAND)).isEmpty();
+
+        verify(organizationRepo, never()).findById(any());
     }
 
     // --- listStores ---
 
     @Test
-    @DisplayName("listStores: returns stores from the repository for an existing organization")
+    @DisplayName("listStores: returns stores from the repository for the caller's brand")
     void listStoresReturnsStoreList() {
         Organization organization = org("Acme");
         Store downtown = sampleStore(organization, "Downtown");
         Store airport = sampleStore(organization, "Airport");
-        when(organizationRepo.existsById(1L)).thenReturn(true);
-        when(storeRepo.findByOrganizationId(1L)).thenReturn(List.of(downtown, airport));
+        when(storeRepo.findByOrganizationId(BRAND)).thenReturn(List.of(downtown, airport));
 
-        List<Store> result = organizationService.listStores(1L);
+        List<Store> result = organizationService.listStores(BRAND, BRAND);
 
         assertThat(result).hasSize(2)
                 .extracting(Store::getName)
@@ -292,13 +255,11 @@ class OrganizationServiceTest {
     }
 
     @Test
-    @DisplayName("listStores: throws OrganizationNotFoundException when the organization is missing")
-    void listStoresMissingOrganizationThrows() {
-        when(organizationRepo.existsById(99L)).thenReturn(false);
-
-        assertThatThrownBy(() -> organizationService.listStores(99L))
+    @DisplayName("listStores: another brand's organization is answered as not found")
+    void listStoresOutsideBrandThrows() {
+        assertThatThrownBy(() -> organizationService.listStores(OTHER_BRAND, BRAND))
                 .isInstanceOf(OrganizationNotFoundException.class)
-                .hasMessageContaining("99");
+                .hasMessageContaining("2");
 
         verify(storeRepo, never()).findByOrganizationId(any());
     }
@@ -306,15 +267,14 @@ class OrganizationServiceTest {
     // --- listRootEmployeeGroups ---
 
     @Test
-    @DisplayName("listRootEmployeeGroups: returns the root groups for an existing organization")
+    @DisplayName("listRootEmployeeGroups: returns the root groups for the caller's brand")
     void listRootEmployeeGroupsReturnsRoots() {
         Organization organization = org("Acme");
-        when(organizationRepo.existsById(1L)).thenReturn(true);
-        when(employeeGroupRepo.findByOrganizationIdAndParentIsNull(1L)).thenReturn(List.of(
+        when(employeeGroupRepo.findByOrganizationIdAndParentIsNull(BRAND)).thenReturn(List.of(
                 group(organization, "Front of House"),
                 group(organization, "Back of House")));
 
-        List<EmployeeGroup> roots = organizationService.listRootEmployeeGroups(1L);
+        List<EmployeeGroup> roots = organizationService.listRootEmployeeGroups(BRAND, BRAND);
 
         assertThat(roots).hasSize(2)
                 .extracting(EmployeeGroup::getName)
@@ -322,13 +282,11 @@ class OrganizationServiceTest {
     }
 
     @Test
-    @DisplayName("listRootEmployeeGroups: throws OrganizationNotFoundException when the organization is missing")
-    void listRootEmployeeGroupsMissingOrganizationThrows() {
-        when(organizationRepo.existsById(99L)).thenReturn(false);
-
-        assertThatThrownBy(() -> organizationService.listRootEmployeeGroups(99L))
+    @DisplayName("listRootEmployeeGroups: another brand's organization is answered as not found")
+    void listRootEmployeeGroupsOutsideBrandThrows() {
+        assertThatThrownBy(() -> organizationService.listRootEmployeeGroups(OTHER_BRAND, BRAND))
                 .isInstanceOf(OrganizationNotFoundException.class)
-                .hasMessageContaining("99");
+                .hasMessageContaining("2");
 
         verify(employeeGroupRepo, never()).findByOrganizationIdAndParentIsNull(any());
     }

@@ -2,7 +2,6 @@ package com.example.posapp.service;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Objects;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -25,13 +24,12 @@ import com.example.posapp.repository.StoreRepository;
  * The assignment is intentionally separated from {@link EmployeeService}
  * and {@link StoreService} so the existing aggregates stay untouched, per
  * the project's assignment-layer convention. Every write must reference an
- * existing employee and an existing store that share the same owning
- * {@link com.example.posapp.entity.Organization}: a missing aggregate is
- * reported as 404 through {@link EmployeeNotFoundException} or
- * {@link StoreNotFoundException}, and a cross-organization pair is
- * reported as 400 through {@link EmployeeStoreValidationException}. The
- * database enforces the same rule as a defence in depth through the
- * composite foreign keys added by the V15 migration.
+ * employee and a store that both belong to the caller's brand: the two
+ * lookups are scoped to the brand, so an aggregate in another brand is
+ * reported as 404 - the same answer a genuinely missing one gets - rather
+ * than as a cross-organization 400 that would confirm the row exists. The
+ * database still enforces the same-organization rule as a defence in depth
+ * through the composite foreign keys added by the V15 migration.
  * </p>
  * <p>
  * When the employee holds a POS PIN credential, adding an assignment also
@@ -95,8 +93,8 @@ public class EmployeeStoreAssignmentService {
      * Assign an employee to a store. Re-assigning an existing pair is a
      * no-op so the endpoint is idempotent, including when a concurrent
      * caller commits the same pair between our existence check and our
-     * insert. The employee and the store must belong to the same
-     * organization.
+     * insert. The employee and the store must both belong to the caller's
+     * brand.
      * <p>
      * No outer {@code @Transactional} wraps this method: the two reads
      * and the insert each run in Spring Data's per-call transaction, so
@@ -117,23 +115,19 @@ public class EmployeeStoreAssignmentService {
      * </p>
      * @param employeeId the employee ID
      * @param storeId the store ID
+     * @param brandId the organization the caller may act within
      * @return the existing or newly saved assignment
-     * @throws EmployeeNotFoundException if the employee does not exist
-     * @throws StoreNotFoundException if the store does not exist
-     * @throws EmployeeStoreValidationException if the pair crosses
-     *         organizations, or if assigning would create a store-scoped
-     *         PIN conflict for a PIN-carrying employee
+     * @throws EmployeeNotFoundException if the employee does not exist in
+     *         the brand
+     * @throws StoreNotFoundException if the store does not exist in the brand
+     * @throws EmployeeStoreValidationException if assigning would create a
+     *         store-scoped PIN conflict for a PIN-carrying employee
      */
-    public EmployeeStoreAssignment assignEmployeeToStore(Long employeeId, Long storeId) {
-        Employee employee = employeeRepo.findById(employeeId)
+    public EmployeeStoreAssignment assignEmployeeToStore(Long employeeId, Long storeId, Long brandId) {
+        Employee employee = employeeRepo.findByIdAndOrganizationId(employeeId, brandId)
                 .orElseThrow(() -> new EmployeeNotFoundException(employeeId));
-        Store store = storeRepo.findById(storeId)
+        Store store = storeRepo.findByIdAndOrganizationId(storeId, brandId)
                 .orElseThrow(() -> new StoreNotFoundException(storeId));
-        if (!sameOrganization(employee, store)) {
-            throw new EmployeeStoreValidationException(
-                    "Employee and store must belong to the same organization: employeeId="
-                            + employeeId + ", storeId=" + storeId);
-        }
         return assignmentRepo.findByEmployeeIdAndStoreId(employeeId, storeId)
                 .orElseGet(() -> {
                     String fingerprint = pinWriter.findCredential(employeeId)
@@ -247,23 +241,22 @@ public class EmployeeStoreAssignmentService {
      * Remove an employee's assignment to a store, ending any POS session
      * they hold at that store and leaving their sessions elsewhere alone.
      * Removing a missing assignment is a no-op so the endpoint is
-     * idempotent. Neither the employee nor the store is deleted.
+     * idempotent. Neither the employee nor the store is deleted, and both
+     * must belong to the caller's brand.
      * @param employeeId the employee ID
      * @param storeId the store ID
-     * @throws EmployeeNotFoundException if the employee does not exist
-     * @throws StoreNotFoundException if the store does not exist
-     * @throws EmployeeStoreValidationException if the pair crosses organizations
+     * @param brandId the organization the caller may act within
+     * @throws EmployeeNotFoundException if the employee does not exist in
+     *         the brand
+     * @throws StoreNotFoundException if the store does not exist in the brand
      */
     @Transactional
-    public void removeEmployeeFromStore(Long employeeId, Long storeId) {
-        Employee employee = employeeRepo.findById(employeeId)
-                .orElseThrow(() -> new EmployeeNotFoundException(employeeId));
-        Store store = storeRepo.findById(storeId)
-                .orElseThrow(() -> new StoreNotFoundException(storeId));
-        if (!sameOrganization(employee, store)) {
-            throw new EmployeeStoreValidationException(
-                    "Employee and store must belong to the same organization: employeeId="
-                            + employeeId + ", storeId=" + storeId);
+    public void removeEmployeeFromStore(Long employeeId, Long storeId, Long brandId) {
+        if (employeeRepo.findByIdAndOrganizationId(employeeId, brandId).isEmpty()) {
+            throw new EmployeeNotFoundException(employeeId);
+        }
+        if (storeRepo.findByIdAndOrganizationId(storeId, brandId).isEmpty()) {
+            throw new StoreNotFoundException(storeId);
         }
         assignmentRepo.findByEmployeeIdAndStoreId(employeeId, storeId)
                 .ifPresent(assignmentRepo::delete);
@@ -274,13 +267,15 @@ public class EmployeeStoreAssignmentService {
     }
 
     /**
-     * List the stores an employee is assigned to.
+     * List the stores an employee is assigned to, within the caller's brand.
      * @param employeeId the employee ID
+     * @param brandId the organization the caller may act within
      * @return the stores the employee is assigned to (empty when none)
-     * @throws EmployeeNotFoundException if the employee does not exist
+     * @throws EmployeeNotFoundException if the employee does not exist in
+     *         the brand
      */
-    public List<Store> listStoresForEmployee(Long employeeId) {
-        if (!employeeRepo.existsById(employeeId)) {
+    public List<Store> listStoresForEmployee(Long employeeId, Long brandId) {
+        if (employeeRepo.findByIdAndOrganizationId(employeeId, brandId).isEmpty()) {
             throw new EmployeeNotFoundException(employeeId);
         }
         return assignmentRepo.findByEmployeeId(employeeId).stream()
@@ -289,32 +284,18 @@ public class EmployeeStoreAssignmentService {
     }
 
     /**
-     * List the employees assigned to a store.
+     * List the employees assigned to a store, within the caller's brand.
      * @param storeId the store ID
+     * @param brandId the organization the caller may act within
      * @return the employees assigned to the store (empty when none)
-     * @throws StoreNotFoundException if the store does not exist
+     * @throws StoreNotFoundException if the store does not exist in the brand
      */
-    public List<Employee> listEmployeesForStore(Long storeId) {
-        if (!storeRepo.existsById(storeId)) {
+    public List<Employee> listEmployeesForStore(Long storeId, Long brandId) {
+        if (storeRepo.findByIdAndOrganizationId(storeId, brandId).isEmpty()) {
             throw new StoreNotFoundException(storeId);
         }
         return assignmentRepo.findByStoreId(storeId).stream()
                 .map(EmployeeStoreAssignment::getEmployee)
                 .toList();
-    }
-
-    /**
-     * Compare the owning organization IDs of an employee and a store.
-     * Both sides are required to reference a persisted organization at
-     * creation, so the null-safe comparison is defensive against a
-     * partially loaded graph rather than a real schema option.
-     * @param employee the resolved employee
-     * @param store the resolved store
-     * @return {@code true} when both belong to the same organization
-     */
-    private static boolean sameOrganization(Employee employee, Store store) {
-        Long employeeOrgId = employee.getOrganization() == null ? null : employee.getOrganization().getId();
-        Long storeOrgId = store.getOrganization() == null ? null : store.getOrganization().getId();
-        return Objects.equals(employeeOrgId, storeOrgId);
     }
 }

@@ -155,6 +155,20 @@ public class ApiExceptionHandler {
     }
 
     /**
+     * Map an action that lies outside every brand (creating or deleting an
+     * organization) to HTTP 403 Forbidden. The title differs from the
+     * security layer's {@code Access denied} because the caller is allowed
+     * into the back office; what is missing is a capability a brand does not
+     * have at all.
+     * @param ex the exception thrown by the service layer
+     * @return a problem detail describing the error
+     */
+    @ExceptionHandler(BrandScopeException.class)
+    public ProblemDetail handleBrandScope(BrandScopeException ex) {
+        return problem(HttpStatus.FORBIDDEN, "Outside the brand", ex.getMessage());
+    }
+
+    /**
      * Map an organization or store business rule violation (blank name,
      * duplicate name, deletion blocked by attached stores, store deletion
      * or organization change blocked by attached employee assignments) to

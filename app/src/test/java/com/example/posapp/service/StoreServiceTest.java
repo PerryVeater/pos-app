@@ -7,7 +7,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,14 +32,26 @@ import com.example.posapp.repository.StoreRepository;
  * <p>
  * The repositories are mocked, so these tests exercise the service in
  * isolation: required-field validation, per-organization store number
- * uniqueness, IANA timezone parsing, re-parenting rules, and delegation
- * for the read and delete operations. Store name uniqueness is no longer
- * enforced and is exercised explicitly by the "duplicate store names are
- * accepted" test. No Spring context or database is required.
+ * uniqueness, IANA timezone parsing, and delegation for the read and delete
+ * operations. Store name uniqueness is no longer enforced and is exercised
+ * explicitly by the "duplicate store names are accepted" test.
+ * </p>
+ * <p>
+ * Because a store belongs to exactly one brand, these tests also pin the
+ * scope rules: an organization, store, or list request outside the caller's
+ * brand is answered exactly like one that does not exist, and the service
+ * never asks the repository for a foreign row. No Spring context or database
+ * is required.
  * </p>
  */
 @ExtendWith(MockitoExtension.class)
 class StoreServiceTest {
+
+    /** The caller's brand, and the only organization these tests may name. */
+    private static final long BRAND = 1L;
+
+    /** A second brand the caller must never reach. */
+    private static final long OTHER_BRAND = 2L;
 
     @Mock
     private StoreRepository storeRepo;
@@ -75,10 +86,10 @@ class StoreServiceTest {
     void createStoreValidIsSaved() {
         Organization acme = acme();
         Store input = validStore();
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme));
         when(storeRepo.save(any(Store.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Store saved = storeService.createStore(input, 1L);
+        Store saved = storeService.createStore(input, BRAND, BRAND);
 
         assertThat(saved.getName()).isEqualTo("Downtown");
         assertThat(saved.getOrganization()).isSameAs(acme);
@@ -89,7 +100,7 @@ class StoreServiceTest {
     @Test
     @DisplayName("createStore: null organizationId is rejected as OrganizationNotFoundException")
     void createStoreNullOrganizationThrows() {
-        assertThatThrownBy(() -> storeService.createStore(validStore(), null))
+        assertThatThrownBy(() -> storeService.createStore(validStore(), null, BRAND))
                 .isInstanceOf(OrganizationNotFoundException.class);
 
         verify(storeRepo, never()).save(any());
@@ -100,10 +111,21 @@ class StoreServiceTest {
     void createStoreUnknownOrganizationThrows() {
         when(organizationRepo.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> storeService.createStore(validStore(), 99L))
+        assertThatThrownBy(() -> storeService.createStore(validStore(), 99L, 99L))
                 .isInstanceOf(OrganizationNotFoundException.class)
                 .hasMessageContaining("99");
 
+        verify(storeRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("createStore: naming another brand's organization is answered as not found")
+    void createStoreOutsideBrandIsNotFound() {
+        assertThatThrownBy(() -> storeService.createStore(validStore(), OTHER_BRAND, BRAND))
+                .isInstanceOf(OrganizationNotFoundException.class)
+                .hasMessageContaining("2");
+
+        verify(organizationRepo, never()).findById(any());
         verify(storeRepo, never()).save(any());
     }
 
@@ -112,9 +134,9 @@ class StoreServiceTest {
     void createStoreBlankNameThrows() {
         Store input = validStore();
         input.setName("   ");
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
 
-        assertThatThrownBy(() -> storeService.createStore(input, 1L))
+        assertThatThrownBy(() -> storeService.createStore(input, BRAND, BRAND))
                 .isInstanceOf(OrganizationValidationException.class)
                 .hasMessage("Name must be provided");
 
@@ -126,9 +148,9 @@ class StoreServiceTest {
     void createStoreMissingAddressFieldThrows() {
         Store input = validStore();
         input.setCity("");
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
 
-        assertThatThrownBy(() -> storeService.createStore(input, 1L))
+        assertThatThrownBy(() -> storeService.createStore(input, BRAND, BRAND))
                 .isInstanceOf(OrganizationValidationException.class)
                 .hasMessage("City is required");
     }
@@ -140,11 +162,11 @@ class StoreServiceTest {
         us.setCountry("US");
         Store mx = validStore();
         mx.setCountry("MX");
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
         when(storeRepo.save(any(Store.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        assertThat(storeService.createStore(us, 1L).getCountry()).isEqualTo("US");
-        assertThat(storeService.createStore(mx, 1L).getCountry()).isEqualTo("MX");
+        assertThat(storeService.createStore(us, BRAND, BRAND).getCountry()).isEqualTo("US");
+        assertThat(storeService.createStore(mx, BRAND, BRAND).getCountry()).isEqualTo("MX");
     }
 
     @Test
@@ -152,10 +174,10 @@ class StoreServiceTest {
     void createStoreLowercaseCountryIsUpperCased() {
         Store input = validStore();
         input.setCountry("mx");
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
         when(storeRepo.save(any(Store.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Store saved = storeService.createStore(input, 1L);
+        Store saved = storeService.createStore(input, BRAND, BRAND);
 
         assertThat(saved.getCountry()).isEqualTo("MX");
     }
@@ -165,9 +187,9 @@ class StoreServiceTest {
     void createStoreUnassignedCountryThrows() {
         Store input = validStore();
         input.setCountry("XX");
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
 
-        assertThatThrownBy(() -> storeService.createStore(input, 1L))
+        assertThatThrownBy(() -> storeService.createStore(input, BRAND, BRAND))
                 .isInstanceOf(OrganizationValidationException.class)
                 .hasMessageContaining("ISO 3166-1 alpha-2");
 
@@ -179,9 +201,9 @@ class StoreServiceTest {
     void createStoreMissingTimezoneThrows() {
         Store input = validStore();
         input.setTimezone(null);
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
 
-        assertThatThrownBy(() -> storeService.createStore(input, 1L))
+        assertThatThrownBy(() -> storeService.createStore(input, BRAND, BRAND))
                 .isInstanceOf(OrganizationValidationException.class)
                 .hasMessage("Timezone is required");
     }
@@ -191,9 +213,9 @@ class StoreServiceTest {
     void createStoreOffsetTimezoneThrows() {
         Store input = validStore();
         input.setTimezone("-08:00");
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
 
-        assertThatThrownBy(() -> storeService.createStore(input, 1L))
+        assertThatThrownBy(() -> storeService.createStore(input, BRAND, BRAND))
                 .isInstanceOf(OrganizationValidationException.class)
                 .hasMessageContaining("valid IANA identifier");
 
@@ -205,9 +227,9 @@ class StoreServiceTest {
     void createStoreUnknownRegionTimezoneThrows() {
         Store input = validStore();
         input.setTimezone("Mars/Olympus_Mons");
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
 
-        assertThatThrownBy(() -> storeService.createStore(input, 1L))
+        assertThatThrownBy(() -> storeService.createStore(input, BRAND, BRAND))
                 .isInstanceOf(OrganizationValidationException.class)
                 .hasMessageContaining("valid IANA identifier");
     }
@@ -217,10 +239,10 @@ class StoreServiceTest {
     void createStoreAmericaMexicoCityAccepted() {
         Store input = validStore();
         input.setTimezone("America/Mexico_City");
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
         when(storeRepo.save(any(Store.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Store saved = storeService.createStore(input, 1L);
+        Store saved = storeService.createStore(input, BRAND, BRAND);
 
         assertThat(saved.getTimezone()).isEqualTo("America/Mexico_City");
     }
@@ -229,10 +251,10 @@ class StoreServiceTest {
     @DisplayName("createStore: duplicate store name across stores is allowed (name is not unique)")
     void createStoreDuplicateNameIsAllowed() {
         Store input = validStore();
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
         when(storeRepo.save(any(Store.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Store saved = storeService.createStore(input, 1L);
+        Store saved = storeService.createStore(input, BRAND, BRAND);
 
         assertThat(saved.getName()).isEqualTo("Downtown");
         // No repository method is consulted to enforce name uniqueness.
@@ -244,10 +266,10 @@ class StoreServiceTest {
     void createStoreDuplicateStoreNumberThrows() {
         Store input = validStore();
         input.setStoreNumber("0042");
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
-        when(storeRepo.existsByOrganizationIdAndStoreNumber(1L, "0042")).thenReturn(true);
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
+        when(storeRepo.existsByOrganizationIdAndStoreNumber(BRAND, "0042")).thenReturn(true);
 
-        assertThatThrownBy(() -> storeService.createStore(input, 1L))
+        assertThatThrownBy(() -> storeService.createStore(input, BRAND, BRAND))
                 .isInstanceOf(OrganizationValidationException.class)
                 .hasMessageContaining("Store number already exists");
 
@@ -259,10 +281,10 @@ class StoreServiceTest {
     void createStoreNullStoreNumberSkipsUniquenessCheck() {
         Store input = validStore();
         input.setStoreNumber(null);
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
         when(storeRepo.save(any(Store.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Store saved = storeService.createStore(input, 1L);
+        Store saved = storeService.createStore(input, BRAND, BRAND);
 
         assertThat(saved.getStoreNumber()).isNull();
         verify(storeRepo, never()).existsByOrganizationIdAndStoreNumber(any(), any());
@@ -273,10 +295,10 @@ class StoreServiceTest {
     void createStoreBlankStoreNumberBecomesNull() {
         Store input = validStore();
         input.setStoreNumber("   ");
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
         when(storeRepo.save(any(Store.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Store saved = storeService.createStore(input, 1L);
+        Store saved = storeService.createStore(input, BRAND, BRAND);
 
         assertThat(saved.getStoreNumber()).isNull();
         verify(storeRepo, never()).existsByOrganizationIdAndStoreNumber(any(), any());
@@ -287,21 +309,22 @@ class StoreServiceTest {
     @Test
     @DisplayName("updateStore: every mutable field is replaced, including address and contact")
     void updateStoreAppliesChanges() {
-        Organization globex = new Organization("Globex");
+        Organization acme = acme();
         Store existing = validStore();
-        existing.setOrganization(acme());
+        existing.setOrganization(acme);
         Store replacement = new Store(null, "Airport", "MX", "CDMX", "Mexico City",
                 "Av. Reforma 1", "06000", "America/Mexico_City");
         replacement.setStoreNumber("MX-01");
         replacement.setPhoneNumber("+52 55 5555 5555");
         replacement.setEmail("airport@example.mx");
         replacement.setActive(false);
-        when(organizationRepo.findById(2L)).thenReturn(Optional.of(globex));
-        when(storeRepo.findById(1L)).thenReturn(Optional.of(existing));
-        when(storeRepo.existsByOrganizationIdAndStoreNumberAndIdNot(2L, "MX-01", 1L)).thenReturn(false);
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme));
+        when(storeRepo.findByIdAndOrganizationId(1L, BRAND)).thenReturn(Optional.of(existing));
+        when(storeRepo.existsByOrganizationIdAndStoreNumberAndIdNot(BRAND, "MX-01", 1L))
+                .thenReturn(false);
         when(storeRepo.save(any(Store.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Store updated = storeService.updateStore(1L, replacement, 2L);
+        Store updated = storeService.updateStore(1L, replacement, BRAND, BRAND);
 
         assertThat(updated.getName()).isEqualTo("Airport");
         assertThat(updated.getCountry()).isEqualTo("MX");
@@ -311,46 +334,66 @@ class StoreServiceTest {
         assertThat(updated.getStoreNumber()).isEqualTo("MX-01");
         assertThat(updated.getEmail()).isEqualTo("airport@example.mx");
         assertThat(updated.isActive()).isFalse();
-        assertThat(updated.getOrganization()).isSameAs(globex);
+        assertThat(updated.getOrganization()).isSameAs(acme);
     }
 
     @Test
     @DisplayName("updateStore: missing store ID throws StoreNotFoundException")
     void updateStoreMissingThrows() {
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
-        when(storeRepo.findById(99L)).thenReturn(Optional.empty());
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
+        when(storeRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> storeService.updateStore(99L, validStore(), 1L))
+        assertThatThrownBy(() -> storeService.updateStore(99L, validStore(), BRAND, BRAND))
                 .isInstanceOf(StoreNotFoundException.class)
                 .hasMessageContaining("99");
     }
 
     @Test
-    @DisplayName("updateStore: re-parenting to an unknown organization is rejected")
+    @DisplayName("updateStore: unknown organizationId is rejected")
     void updateStoreUnknownOrganizationThrows() {
         when(organizationRepo.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> storeService.updateStore(1L, validStore(), 99L))
+        assertThatThrownBy(() -> storeService.updateStore(1L, validStore(), 99L, 99L))
                 .isInstanceOf(OrganizationNotFoundException.class)
                 .hasMessageContaining("99");
 
-        verify(storeRepo, never()).findById(any());
+        verify(storeRepo, never()).findByIdAndOrganizationId(any(), any());
     }
 
     @Test
-    @DisplayName("updateStore: store number conflicting with another store in the target org is rejected")
+    @DisplayName("updateStore: naming another brand's organization is answered as not found")
+    void updateStoreOutsideBrandIsNotFound() {
+        assertThatThrownBy(() -> storeService.updateStore(1L, validStore(), OTHER_BRAND, BRAND))
+                .isInstanceOf(OrganizationNotFoundException.class);
+
+        verify(organizationRepo, never()).findById(any());
+        verify(storeRepo, never()).findByIdAndOrganizationId(any(), any());
+    }
+
+    @Test
+    @DisplayName("updateStore: a store of another brand is answered as missing")
+    void updateStoreOfAnotherBrandIsMissing() {
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
+
+        assertThatThrownBy(() -> storeService.updateStore(1L, validStore(), BRAND, BRAND))
+                .isInstanceOf(StoreNotFoundException.class);
+
+        verify(storeRepo, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("updateStore: store number conflicting with another store in the organization is rejected")
     void updateStoreStoreNumberConflictThrows() {
         Store existing = validStore();
         existing.setOrganization(acme());
         Store replacement = validStore();
         replacement.setStoreNumber("0042");
-        Organization acme = acme();
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme));
-        when(storeRepo.findById(1L)).thenReturn(Optional.of(existing));
-        when(storeRepo.existsByOrganizationIdAndStoreNumberAndIdNot(eq(1L), eq("0042"), eq(1L)))
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
+        when(storeRepo.findByIdAndOrganizationId(1L, BRAND)).thenReturn(Optional.of(existing));
+        when(storeRepo.existsByOrganizationIdAndStoreNumberAndIdNot(eq(BRAND), eq("0042"), eq(1L)))
                 .thenReturn(true);
 
-        assertThatThrownBy(() -> storeService.updateStore(1L, replacement, 1L))
+        assertThatThrownBy(() -> storeService.updateStore(1L, replacement, BRAND, BRAND))
                 .isInstanceOf(OrganizationValidationException.class)
                 .hasMessageContaining("Store number already exists");
 
@@ -362,71 +405,28 @@ class StoreServiceTest {
     void updateStoreInvalidTimezoneThrows() {
         Store replacement = validStore();
         replacement.setTimezone("Not/AZone");
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(acme()));
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(acme()));
 
-        assertThatThrownBy(() -> storeService.updateStore(1L, replacement, 1L))
+        assertThatThrownBy(() -> storeService.updateStore(1L, replacement, BRAND, BRAND))
                 .isInstanceOf(OrganizationValidationException.class)
                 .hasMessageContaining("valid IANA identifier");
 
-        verify(storeRepo, never()).findById(any());
+        verify(storeRepo, never()).findByIdAndOrganizationId(any(), any());
     }
 
     @Test
-    @DisplayName("updateStore: re-parenting a store that still has employee assignments is rejected")
-    void updateStoreRejectsOrganizationChangeWhenAssignmentsExist() {
-        Organization current = mock(Organization.class);
-        when(current.getId()).thenReturn(1L);
-        Store existing = mock(Store.class);
-        when(existing.getOrganization()).thenReturn(current);
-        Organization target = acme();
-        when(organizationRepo.findById(2L)).thenReturn(Optional.of(target));
-        when(storeRepo.findById(7L)).thenReturn(Optional.of(existing));
-        when(assignmentRepo.countByStoreId(7L)).thenReturn(2L);
-
-        assertThatThrownBy(() -> storeService.updateStore(7L, validStore(), 2L))
-                .isInstanceOf(OrganizationValidationException.class)
-                .hasMessageContaining("Cannot move store to another organization")
-                .hasMessageContaining("assignments exist")
-                .hasMessageContaining("storeId=7")
-                .hasMessageContaining("currentOrganizationId=1")
-                .hasMessageContaining("targetOrganizationId=2");
-
-        verify(assignmentRepo).countByStoreId(7L);
-        verify(storeRepo, never()).save(any(Store.class));
-    }
-
-    @Test
-    @DisplayName("updateStore: re-parenting an assignment-free store is allowed")
-    void updateStoreAllowsOrganizationChangeWithoutAssignments() {
-        Organization current = mock(Organization.class);
-        when(current.getId()).thenReturn(1L);
+    @DisplayName("updateStore: the owning organization is rewritten in place, with no assignment count")
+    void updateStoreKeepsTheOrganizationItCameWith() {
+        // The brand is the store's current organization, so an update can
+        // never re-parent the row and the assignment guard is unreachable.
+        Organization current = acme();
         Store existing = validStore();
         existing.setOrganization(current);
-        Organization target = acme();
-        when(organizationRepo.findById(2L)).thenReturn(Optional.of(target));
-        when(storeRepo.findById(7L)).thenReturn(Optional.of(existing));
-        when(assignmentRepo.countByStoreId(7L)).thenReturn(0L);
+        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(current));
+        when(storeRepo.findByIdAndOrganizationId(7L, BRAND)).thenReturn(Optional.of(existing));
         when(storeRepo.save(any(Store.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Store updated = storeService.updateStore(7L, validStore(), 2L);
-
-        assertThat(updated.getOrganization()).isSameAs(target);
-        verify(assignmentRepo).countByStoreId(7L);
-        verify(storeRepo).save(existing);
-    }
-
-    @Test
-    @DisplayName("updateStore: staying in the same organization skips the assignment count")
-    void updateStoreSameOrganizationSkipsAssignmentCount() {
-        Organization current = mock(Organization.class);
-        when(current.getId()).thenReturn(1L);
-        Store existing = validStore();
-        existing.setOrganization(current);
-        when(organizationRepo.findById(1L)).thenReturn(Optional.of(current));
-        when(storeRepo.findById(7L)).thenReturn(Optional.of(existing));
-        when(storeRepo.save(any(Store.class))).thenAnswer(inv -> inv.getArgument(0));
-
-        Store updated = storeService.updateStore(7L, validStore(), 1L);
+        Store updated = storeService.updateStore(7L, validStore(), BRAND, BRAND);
 
         assertThat(updated.getOrganization()).isSameAs(current);
         verify(assignmentRepo, never()).countByStoreId(any());
@@ -438,9 +438,9 @@ class StoreServiceTest {
     @Test
     @DisplayName("deleteStore: an existing store without assignments is deleted")
     void deleteStoreDelegatesToRepository() {
-        when(storeRepo.existsById(1L)).thenReturn(true);
+        when(storeRepo.existsByIdAndOrganizationId(1L, BRAND)).thenReturn(true);
 
-        storeService.deleteStore(1L);
+        storeService.deleteStore(1L, BRAND);
 
         verify(storeRepo).deleteById(1L);
     }
@@ -448,9 +448,9 @@ class StoreServiceTest {
     @Test
     @DisplayName("deleteStore: a missing store is rejected instead of a silent no-op")
     void deleteStoreMissingThrows() {
-        when(storeRepo.existsById(99L)).thenReturn(false);
+        when(storeRepo.existsByIdAndOrganizationId(99L, BRAND)).thenReturn(false);
 
-        assertThatThrownBy(() -> storeService.deleteStore(99L))
+        assertThatThrownBy(() -> storeService.deleteStore(99L, BRAND))
                 .isInstanceOf(StoreNotFoundException.class)
                 .hasMessageContaining("99");
 
@@ -458,12 +458,22 @@ class StoreServiceTest {
     }
 
     @Test
+    @DisplayName("deleteStore: another brand's store is answered as missing and nothing is deleted")
+    void deleteStoreOutsideBrandIsNotFound() {
+        assertThatThrownBy(() -> storeService.deleteStore(1L, OTHER_BRAND))
+                .isInstanceOf(StoreNotFoundException.class);
+
+        verify(storeRepo).existsByIdAndOrganizationId(1L, OTHER_BRAND);
+        verify(storeRepo, never()).deleteById(any());
+    }
+
+    @Test
     @DisplayName("deleteStore: a store with assigned employees is rejected and nothing is deleted")
     void deleteStoreWithAssignmentsIsRejected() {
-        when(storeRepo.existsById(1L)).thenReturn(true);
+        when(storeRepo.existsByIdAndOrganizationId(1L, BRAND)).thenReturn(true);
         when(assignmentRepo.countByStoreId(1L)).thenReturn(3L);
 
-        assertThatThrownBy(() -> storeService.deleteStore(1L))
+        assertThatThrownBy(() -> storeService.deleteStore(1L, BRAND))
                 .isInstanceOf(OrganizationValidationException.class)
                 .hasMessageContaining("still having assigned employees");
 
@@ -471,37 +481,46 @@ class StoreServiceTest {
     }
 
     @Test
-    @DisplayName("getAllStores: returns every store")
-    void getAllStoresReturnsAll() {
+    @DisplayName("getAllStores: asks only for the caller's brand")
+    void getAllStoresReturnsBrandsStores() {
         Organization acme = acme();
         Store downtown = validStore();
         downtown.setOrganization(acme);
         Store airport = validStore();
         airport.setName("Airport");
         airport.setOrganization(acme);
-        when(storeRepo.findAll()).thenReturn(List.of(downtown, airport));
+        when(storeRepo.findByOrganizationId(BRAND)).thenReturn(List.of(downtown, airport));
 
-        List<Store> all = storeService.getAllStores();
+        List<Store> all = storeService.getAllStores(BRAND);
 
         assertThat(all).hasSize(2)
                 .extracting(Store::getName)
                 .containsExactly("Downtown", "Airport");
+        verify(storeRepo, never()).findAll();
     }
 
     @Test
     @DisplayName("getStoreById: null ID throws IllegalArgumentException")
     void getStoreByIdNullThrows() {
-        assertThatThrownBy(() -> storeService.getStoreById(null))
+        assertThatThrownBy(() -> storeService.getStoreById(null, BRAND))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("ID cannot be null");
     }
 
     @Test
-    @DisplayName("getStoreById: delegates to the repository when the ID is present")
+    @DisplayName("getStoreById: delegates to the scoped repository when the ID is present")
     void getStoreByIdDelegates() {
         Store existing = validStore();
-        when(storeRepo.findById(1L)).thenReturn(Optional.of(existing));
+        when(storeRepo.findByIdAndOrganizationId(1L, BRAND)).thenReturn(Optional.of(existing));
 
-        assertThat(storeService.getStoreById(1L)).contains(existing);
+        assertThat(storeService.getStoreById(1L, BRAND)).contains(existing);
+    }
+
+    @Test
+    @DisplayName("getStoreById: a store of another brand is not visible")
+    void getStoreByIdOutsideBrandIsEmpty() {
+        assertThat(storeService.getStoreById(1L, OTHER_BRAND)).isEmpty();
+
+        verify(storeRepo).findByIdAndOrganizationId(1L, OTHER_BRAND);
     }
 }

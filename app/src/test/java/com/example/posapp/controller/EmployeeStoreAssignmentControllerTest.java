@@ -2,6 +2,7 @@ package com.example.posapp.controller;
 
 import java.util.List;
 
+import static com.example.posapp.controller.BrandScopeTestSupport.BRAND_ID;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -16,6 +17,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,9 +42,14 @@ import com.example.posapp.service.EmployeeStoreAssignmentService;
  * The {@link EmployeeStoreAssignmentService} is replaced with a Mockito
  * mock, so these tests verify the HTTP contract only: routing, status
  * codes, and the RFC 9457 problem-detail responses returned for client
- * errors. Assignment persistence and the same-organization rule are
- * covered by the service unit tests and the Testcontainers integration
- * tests, not here.
+ * errors. Assignment persistence and the store PIN claim are covered by the
+ * service unit tests and the Testcontainers integration tests, not here.
+ * </p>
+ * <p>
+ * Every call is asserted to carry the caller's brand. Because both lookups
+ * are scoped to it, an employee or store belonging to another brand reaches
+ * the controller as a 404 - the same answer a genuinely missing one gets -
+ * so an assignment can never be read or written across brands.
  * </p>
  */
 @WebMvcTest(EmployeeStoreAssignmentController.class)
@@ -53,6 +61,16 @@ class EmployeeStoreAssignmentControllerTest {
 
     @MockitoBean
     private EmployeeStoreAssignmentService assignmentService;
+
+    @BeforeEach
+    void signIn() {
+        BrandScopeTestSupport.signIn();
+    }
+
+    @AfterEach
+    void signOut() {
+        BrandScopeTestSupport.signOut();
+    }
 
     private static Employee employee(String name) {
         return new Employee(name);
@@ -71,7 +89,7 @@ class EmployeeStoreAssignmentControllerTest {
         mockMvc.perform(put("/api/v1/employees/1/stores/2"))
                 .andExpect(status().isNoContent());
 
-        verify(assignmentService).assignEmployeeToStore(1L, 2L);
+        verify(assignmentService).assignEmployeeToStore(1L, 2L, BRAND_ID);
     }
 
     @Test
@@ -80,13 +98,13 @@ class EmployeeStoreAssignmentControllerTest {
         mockMvc.perform(put("/api/v1/employees/1/stores/2"))
                 .andExpect(status().isNoContent());
 
-        verify(assignmentService).assignEmployeeToStore(1L, 2L);
+        verify(assignmentService).assignEmployeeToStore(1L, 2L, BRAND_ID);
     }
 
     @Test
     @DisplayName("PUT /api/v1/employees/{id}/stores/{storeId} returns 404 when the employee is missing")
     void assignMissingEmployeeReturns404() throws Exception {
-        when(assignmentService.assignEmployeeToStore(99L, 2L))
+        when(assignmentService.assignEmployeeToStore(99L, 2L, BRAND_ID))
                 .thenThrow(new EmployeeNotFoundException(99L));
 
         mockMvc.perform(put("/api/v1/employees/99/stores/2"))
@@ -99,7 +117,7 @@ class EmployeeStoreAssignmentControllerTest {
     @Test
     @DisplayName("PUT /api/v1/employees/{id}/stores/{storeId} returns 404 when the store is missing")
     void assignMissingStoreReturns404() throws Exception {
-        when(assignmentService.assignEmployeeToStore(1L, 99L))
+        when(assignmentService.assignEmployeeToStore(1L, 99L, BRAND_ID))
                 .thenThrow(new StoreNotFoundException(99L));
 
         mockMvc.perform(put("/api/v1/employees/1/stores/99"))
@@ -110,18 +128,18 @@ class EmployeeStoreAssignmentControllerTest {
     }
 
     @Test
-    @DisplayName("PUT /api/v1/employees/{id}/stores/{storeId} returns 400 for a cross-organization pair")
-    void assignCrossOrganizationReturns400() throws Exception {
-        when(assignmentService.assignEmployeeToStore(1L, 2L))
+    @DisplayName("PUT /api/v1/employees/{id}/stores/{storeId} surfaces a PIN conflict as 400")
+    void assignPinConflictReturns400() throws Exception {
+        when(assignmentService.assignEmployeeToStore(1L, 2L, BRAND_ID))
                 .thenThrow(new EmployeeStoreValidationException(
-                        "Employee and store must belong to the same organization:"
-                                + " employeeId=1, storeId=2"));
+                        "Assigning this employee would conflict with another employee's"
+                                + " PIN at the store: employeeId=1, storeId=2"));
 
         mockMvc.perform(put("/api/v1/employees/1/stores/2"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.title").value("Invalid employee store assignment"))
-                .andExpect(jsonPath("$.detail").value(containsString("same organization")));
+                .andExpect(jsonPath("$.detail").value(containsString("conflict")));
     }
 
     @Test
@@ -130,7 +148,7 @@ class EmployeeStoreAssignmentControllerTest {
         mockMvc.perform(put("/api/v1/employees/abc/stores/2"))
                 .andExpect(status().isBadRequest());
 
-        verify(assignmentService, never()).assignEmployeeToStore(anyLong(), anyLong());
+        verify(assignmentService, never()).assignEmployeeToStore(anyLong(), anyLong(), anyLong());
     }
 
     // --- DELETE /api/v1/employees/{employeeId}/stores/{storeId} ---
@@ -141,7 +159,7 @@ class EmployeeStoreAssignmentControllerTest {
         mockMvc.perform(delete("/api/v1/employees/1/stores/2"))
                 .andExpect(status().isNoContent());
 
-        verify(assignmentService).removeEmployeeFromStore(1L, 2L);
+        verify(assignmentService).removeEmployeeFromStore(1L, 2L, BRAND_ID);
     }
 
     @Test
@@ -152,13 +170,14 @@ class EmployeeStoreAssignmentControllerTest {
         mockMvc.perform(delete("/api/v1/employees/1/stores/2"))
                 .andExpect(status().isNoContent());
 
-        verify(assignmentService).removeEmployeeFromStore(1L, 2L);
+        verify(assignmentService).removeEmployeeFromStore(1L, 2L, BRAND_ID);
     }
 
     @Test
     @DisplayName("DELETE /api/v1/employees/{id}/stores/{storeId} returns 404 when the employee is missing")
     void removeMissingEmployeeReturns404() throws Exception {
-        doThrow(new EmployeeNotFoundException(99L)).when(assignmentService).removeEmployeeFromStore(99L, 2L);
+        doThrow(new EmployeeNotFoundException(99L))
+                .when(assignmentService).removeEmployeeFromStore(99L, 2L, BRAND_ID);
 
         mockMvc.perform(delete("/api/v1/employees/99/stores/2"))
                 .andExpect(status().isNotFound())
@@ -168,7 +187,8 @@ class EmployeeStoreAssignmentControllerTest {
     @Test
     @DisplayName("DELETE /api/v1/employees/{id}/stores/{storeId} returns 404 when the store is missing")
     void removeMissingStoreReturns404() throws Exception {
-        doThrow(new StoreNotFoundException(99L)).when(assignmentService).removeEmployeeFromStore(1L, 99L);
+        doThrow(new StoreNotFoundException(99L))
+                .when(assignmentService).removeEmployeeFromStore(1L, 99L, BRAND_ID);
 
         mockMvc.perform(delete("/api/v1/employees/1/stores/99"))
                 .andExpect(status().isNotFound())
@@ -176,17 +196,18 @@ class EmployeeStoreAssignmentControllerTest {
     }
 
     @Test
-    @DisplayName("DELETE /api/v1/employees/{id}/stores/{storeId} returns 400 for a cross-organization pair")
-    void removeCrossOrganizationReturns400() throws Exception {
-        doThrow(new EmployeeStoreValidationException(
-                "Employee and store must belong to the same organization:"
-                        + " employeeId=1, storeId=2"))
-                .when(assignmentService).removeEmployeeFromStore(1L, 2L);
+    @DisplayName("DELETE /api/v1/employees/{id}/stores/{storeId} reports another brand's store as 404")
+    void removeStoreOutsideBrandReturns404() throws Exception {
+        // The lookup carries the brand, so a store in another brand is
+        // answered exactly like a store that does not exist.
+        doThrow(new StoreNotFoundException(2L))
+                .when(assignmentService).removeEmployeeFromStore(1L, 2L, BRAND_ID);
 
         mockMvc.perform(delete("/api/v1/employees/1/stores/2"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.title").value("Invalid employee store assignment"))
-                .andExpect(jsonPath("$.detail").value(containsString("same organization")));
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Store not found"));
+
+        verify(assignmentService).removeEmployeeFromStore(1L, 2L, BRAND_ID);
     }
 
     // --- GET /api/v1/employees/{employeeId}/stores ---
@@ -194,7 +215,7 @@ class EmployeeStoreAssignmentControllerTest {
     @Test
     @DisplayName("GET /api/v1/employees/{id}/stores returns the employee's stores")
     void listStoresForEmployeeReturnsList() throws Exception {
-        when(assignmentService.listStoresForEmployee(1L))
+        when(assignmentService.listStoresForEmployee(1L, BRAND_ID))
                 .thenReturn(List.of(store("Downtown"), store("Airport")));
 
         mockMvc.perform(get("/api/v1/employees/1/stores"))
@@ -208,7 +229,7 @@ class EmployeeStoreAssignmentControllerTest {
     @Test
     @DisplayName("GET /api/v1/employees/{id}/stores returns an empty array when the employee has no assignments")
     void listStoresForEmployeeEmptyReturnsEmptyArray() throws Exception {
-        when(assignmentService.listStoresForEmployee(1L)).thenReturn(List.of());
+        when(assignmentService.listStoresForEmployee(1L, BRAND_ID)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/v1/employees/1/stores"))
                 .andExpect(status().isOk())
@@ -218,7 +239,7 @@ class EmployeeStoreAssignmentControllerTest {
     @Test
     @DisplayName("GET /api/v1/employees/{id}/stores returns 404 when the employee is missing")
     void listStoresForEmployeeMissingReturns404() throws Exception {
-        when(assignmentService.listStoresForEmployee(99L))
+        when(assignmentService.listStoresForEmployee(99L, BRAND_ID))
                 .thenThrow(new EmployeeNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/employees/99/stores"))
@@ -232,7 +253,7 @@ class EmployeeStoreAssignmentControllerTest {
     @Test
     @DisplayName("GET /api/v1/stores/{id}/employees returns the store's employees")
     void listEmployeesForStoreReturnsList() throws Exception {
-        when(assignmentService.listEmployeesForStore(2L))
+        when(assignmentService.listEmployeesForStore(2L, BRAND_ID))
                 .thenReturn(List.of(employee("Ada"), employee("Grace")));
 
         mockMvc.perform(get("/api/v1/stores/2/employees"))
@@ -246,7 +267,7 @@ class EmployeeStoreAssignmentControllerTest {
     @Test
     @DisplayName("GET /api/v1/stores/{id}/employees returns an empty array when the store has no assignments")
     void listEmployeesForStoreEmptyReturnsEmptyArray() throws Exception {
-        when(assignmentService.listEmployeesForStore(2L)).thenReturn(List.of());
+        when(assignmentService.listEmployeesForStore(2L, BRAND_ID)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/v1/stores/2/employees"))
                 .andExpect(status().isOk())
@@ -256,7 +277,7 @@ class EmployeeStoreAssignmentControllerTest {
     @Test
     @DisplayName("GET /api/v1/stores/{id}/employees returns 404 when the store is missing")
     void listEmployeesForStoreMissingReturns404() throws Exception {
-        when(assignmentService.listEmployeesForStore(99L))
+        when(assignmentService.listEmployeesForStore(99L, BRAND_ID))
                 .thenThrow(new StoreNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/stores/99/employees"))

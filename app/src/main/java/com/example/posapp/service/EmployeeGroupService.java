@@ -2,7 +2,6 @@ package com.example.posapp.service;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -21,9 +20,12 @@ import com.example.posapp.repository.OrganizationRepository;
  * Service layer for {@link EmployeeGroup} entities.
  * <p>
  * Encapsulates the employee group hierarchy rules: the name is required;
- * every group must reference an existing owning {@link Organization}; a
- * group's optional parent must reference an existing group in the same
- * organization; a group cannot be its own parent and re-parenting must
+ * every group must reference the caller's brand as its owning
+ * {@link Organization}; a group's optional parent must reference an
+ * existing group in the same brand, which the lookup enforces by scoping to
+ * the brand rather than by comparing organizations afterwards, so a parent
+ * in another brand is reported exactly like a parent that does not exist; a
+ * group cannot be its own parent and re-parenting must
  * not introduce an indirect cycle; and a group that still has child
  * groups cannot be deleted, so callers must remove or re-parent the
  * children first. The owning organization is fixed at creation because a
@@ -59,20 +61,25 @@ public class EmployeeGroupService {
      * the owning organization and optional parent group.
      * @param group the transient group to save (its organization and
      *        parent fields are overwritten by the resolved entities)
-     * @param organizationId the ID of the owning organization, required
+     * @param organizationId the ID of the owning organization, required; it
+     *        must be the caller's brand
      * @param parentId the optional parent group ID (null creates a root)
+     * @param brandId the organization the caller may act within
      * @return the saved group
-     * @throws EmployeeGroupValidationException if the name is blank, the
-     *         parent belongs to a different organization, or the parent
-     *         is the group itself
+     * @throws EmployeeGroupValidationException if the name is blank or the
+     *         parent is the group itself
      * @throws OrganizationNotFoundException if the organization ID is
-     *         missing or does not exist
-     * @throws EmployeeGroupNotFoundException if the parent ID does not exist
+     *         missing, does not exist, or lies outside the brand
+     * @throws EmployeeGroupNotFoundException if the parent ID does not
+     *         exist in the brand
      */
-    public EmployeeGroup createEmployeeGroup(EmployeeGroup group, Long organizationId, Long parentId) {
-        Organization organization = resolveOrganization(organizationId);
+    public EmployeeGroup createEmployeeGroup(EmployeeGroup group,
+                                             Long organizationId,
+                                             Long parentId,
+                                             Long brandId) {
+        Organization organization = resolveOrganization(organizationId, brandId);
         validateName(group.getName());
-        EmployeeGroup parent = resolveParent(parentId, organization, null);
+        EmployeeGroup parent = resolveParent(parentId, brandId, null);
         group.setOrganization(organization);
         group.setParent(parent);
         return employeeGroupRepo.save(group);
@@ -80,24 +87,26 @@ public class EmployeeGroupService {
 
     /**
      * Update an existing employee group's name, active flag, and parent.
-     * The owning organization cannot change: re-parenting is validated
-     * against the group's current organization, so the parent must belong
-     * to the same organization and must not create a cycle.
+     * The group must belong to the caller's brand, and the owning
+     * organization cannot change: re-parenting is validated against the
+     * group's current organization, so the parent must belong to the same
+     * brand and must not create a cycle.
      * @param id the employee group ID
      * @param updated the replacement values
      * @param parentId the optional parent group ID (null makes the group a root)
+     * @param brandId the organization the caller may act within
      * @return the updated group
      * @throws EmployeeGroupNotFoundException if no group exists with the
-     *         ID, or the requested parent does not exist
+     *         ID in the brand, or the requested parent does not exist there
      * @throws EmployeeGroupValidationException if the name is blank, the
-     *         parent belongs to a different organization, the parent is
-     *         the group itself, or the re-parenting would create a cycle
+     *         parent is the group itself, or the re-parenting would create
+     *         a cycle
      */
-    public EmployeeGroup updateEmployeeGroup(Long id, EmployeeGroup updated, Long parentId) {
+    public EmployeeGroup updateEmployeeGroup(Long id, EmployeeGroup updated, Long parentId, Long brandId) {
         validateName(updated.getName());
-        return employeeGroupRepo.findById(id)
+        return employeeGroupRepo.findByIdAndOrganizationId(id, brandId)
                 .map(existing -> {
-                    EmployeeGroup parent = resolveParent(parentId, existing.getOrganization(), id);
+                    EmployeeGroup parent = resolveParent(parentId, brandId, id);
                     existing.setName(updated.getName());
                     existing.setActive(updated.isActive());
                     existing.setParent(parent);
@@ -111,12 +120,14 @@ public class EmployeeGroupService {
      * has child groups or attached employee memberships so callers must
      * remove the children and detach the members first.
      * @param id the employee group ID
+     * @param brandId the organization the caller may act within
      * @throws EmployeeGroupNotFoundException if no group exists with the ID
+     *         in the brand
      * @throws EmployeeGroupValidationException if the group still has child groups
      *         or employee members
      */
-    public void deleteEmployeeGroup(Long id) {
-        if (!employeeGroupRepo.existsById(id)) {
+    public void deleteEmployeeGroup(Long id, Long brandId) {
+        if (employeeGroupRepo.findByIdAndOrganizationId(id, brandId).isEmpty()) {
             throw new EmployeeGroupNotFoundException(id);
         }
         if (employeeGroupRepo.countByParentId(id) > 0) {
@@ -131,34 +142,39 @@ public class EmployeeGroupService {
     }
 
     /**
-     * Retrieve every employee group.
-     * @return the list of employee groups
+     * Retrieve every employee group in the caller's brand.
+     * @param brandId the organization the caller may act within
+     * @return the employee groups of that organization
      */
-    public List<EmployeeGroup> getAllEmployeeGroups() {
-        return employeeGroupRepo.findAll();
+    public List<EmployeeGroup> getAllEmployeeGroups(Long brandId) {
+        return employeeGroupRepo.findByOrganizationId(brandId);
     }
 
     /**
-     * Retrieve an employee group by ID.
+     * Retrieve an employee group by ID, within the caller's brand.
      * @param id the employee group ID
-     * @return the Optional containing the group if found
+     * @param brandId the organization the caller may act within
+     * @return the Optional containing the group if found in that brand
      * @throws IllegalArgumentException if {@code id} is null
      */
-    public Optional<EmployeeGroup> getEmployeeGroupById(Long id) {
+    public Optional<EmployeeGroup> getEmployeeGroupById(Long id, Long brandId) {
         if (id == null) {
             throw new IllegalArgumentException("ID cannot be null");
         }
-        return employeeGroupRepo.findById(id);
+        return employeeGroupRepo.findByIdAndOrganizationId(id, brandId);
     }
 
     /**
-     * Return the direct child groups of an employee group.
+     * Return the direct child groups of an employee group, within the
+     * caller's brand.
      * @param parentId the parent group ID
+     * @param brandId the organization the caller may act within
      * @return the child groups (empty when the parent has none)
      * @throws EmployeeGroupNotFoundException if no group exists with the ID
+     *         in the brand
      */
-    public List<EmployeeGroup> listChildGroups(Long parentId) {
-        if (!employeeGroupRepo.existsById(parentId)) {
+    public List<EmployeeGroup> listChildGroups(Long parentId, Long brandId) {
+        if (employeeGroupRepo.findByIdAndOrganizationId(parentId, brandId).isEmpty()) {
             throw new EmployeeGroupNotFoundException(parentId);
         }
         return employeeGroupRepo.findByParentId(parentId);
@@ -168,13 +184,16 @@ public class EmployeeGroupService {
      * Load the referenced organization or fail with
      * {@link OrganizationNotFoundException}. A null ID is treated the same
      * way as a missing organization so callers cannot bypass the FK
-     * requirement.
+     * requirement, and an ID outside the caller's brand is treated the same
+     * way as a missing one so the endpoint reveals nothing about other
+     * brands.
      * @param organizationId the ID to resolve (may be null)
+     * @param brandId the organization the caller may act within
      * @return the persisted organization
      */
-    private Organization resolveOrganization(Long organizationId) {
-        if (organizationId == null) {
-            throw new OrganizationNotFoundException(null);
+    private Organization resolveOrganization(Long organizationId, Long brandId) {
+        if (organizationId == null || !organizationId.equals(brandId)) {
+            throw new OrganizationNotFoundException(organizationId);
         }
         return organizationRepo.findById(organizationId)
                 .orElseThrow(() -> new OrganizationNotFoundException(organizationId));
@@ -183,20 +202,21 @@ public class EmployeeGroupService {
     /**
      * Resolve the optional parent group for a create or update operation.
      * A null {@code parentId} means "no parent" (a root group). A
-     * non-null ID must reference an existing group in the same
-     * organization, must not be the group being updated itself, and must
-     * not be a descendant of it.
+     * non-null ID must reference an existing group in the caller's brand,
+     * must not be the group being updated itself, and must not be a
+     * descendant of it. The lookup is scoped to the brand, so a parent
+     * outside it surfaces as a missing parent.
      * @param parentId the requested parent group ID (may be null)
-     * @param organization the organization the child group belongs to
+     * @param brandId the organization the caller may act within
      * @param updatingId the ID of the group being updated, or {@code null}
      *        on create
      * @return the resolved parent group, or {@code null} for a root
      * @throws EmployeeGroupNotFoundException if the parent does not exist
+     *         in the brand
      * @throws EmployeeGroupValidationException if the parent is the group
-     *         itself, belongs to a different organization, or would
-     *         introduce a cycle
+     *         itself or would introduce a cycle
      */
-    private EmployeeGroup resolveParent(Long parentId, Organization organization, Long updatingId) {
+    private EmployeeGroup resolveParent(Long parentId, Long brandId, Long updatingId) {
         if (parentId == null) {
             return null;
         }
@@ -204,13 +224,8 @@ public class EmployeeGroupService {
             throw new EmployeeGroupValidationException(
                     "Employee group cannot be its own parent: " + parentId);
         }
-        EmployeeGroup parent = employeeGroupRepo.findById(parentId)
+        EmployeeGroup parent = employeeGroupRepo.findByIdAndOrganizationId(parentId, brandId)
                 .orElseThrow(() -> new EmployeeGroupNotFoundException(parentId));
-        if (!Objects.equals(parent.getOrganization().getId(), organization.getId())) {
-            throw new EmployeeGroupValidationException(
-                    "Parent and child employee groups must belong to the same organization: parentId="
-                            + parentId + ", organizationId=" + organization.getId());
-        }
         if (updatingId != null) {
             validateNoCycle(parent, updatingId);
         }

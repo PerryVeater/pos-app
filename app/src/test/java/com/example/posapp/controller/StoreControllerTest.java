@@ -3,6 +3,7 @@ package com.example.posapp.controller;
 import java.util.List;
 import java.util.Optional;
 
+import static com.example.posapp.controller.BrandScopeTestSupport.BRAND_ID;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
@@ -18,6 +19,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +49,13 @@ import com.example.posapp.service.StoreService;
  * exercised through requests missing required fields or supplying a
  * malformed country code / email / timezone.
  * </p>
+ * <p>
+ * The filter chain is disabled, so each test signs a principal into the
+ * {@link org.springframework.security.core.context.SecurityContextHolder}
+ * by hand and the mocked service is asserted to receive that brand. A
+ * store belonging to another brand is therefore reported by the service as
+ * missing, which these tests cover through the 404 expectations.
+ * </p>
  */
 @WebMvcTest(StoreController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -56,6 +66,16 @@ class StoreControllerTest {
 
     @MockitoBean
     private StoreService storeService;
+
+    @BeforeEach
+    void signIn() {
+        BrandScopeTestSupport.signIn();
+    }
+
+    @AfterEach
+    void signOut() {
+        BrandScopeTestSupport.signOut();
+    }
 
     private static Organization acme() {
         return new Organization("Acme Restaurants");
@@ -98,19 +118,22 @@ class StoreControllerTest {
     @Test
     @DisplayName("GET /api/v1/stores returns an empty array")
     void listStoresEmpty() throws Exception {
-        when(storeService.getAllStores()).thenReturn(List.of());
+        when(storeService.getAllStores(BRAND_ID)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/v1/stores"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$", hasSize(0)));
+
+        // The listing is the caller's brand, not every store in the database.
+        verify(storeService).getAllStores(BRAND_ID);
     }
 
     @Test
     @DisplayName("GET /api/v1/stores returns every store with its flattened organization info")
     void listStoresReturnsAll() throws Exception {
         Organization acme = acme();
-        when(storeService.getAllStores()).thenReturn(List.of(
+        when(storeService.getAllStores(BRAND_ID)).thenReturn(List.of(
                 store(acme, "Downtown"),
                 store(acme, "Airport")));
 
@@ -129,7 +152,8 @@ class StoreControllerTest {
     @Test
     @DisplayName("GET /api/v1/stores/{id} returns the store")
     void getStoreReturns200() throws Exception {
-        when(storeService.getStoreById(1L)).thenReturn(Optional.of(store(acme(), "Downtown")));
+        when(storeService.getStoreById(1L, BRAND_ID))
+                .thenReturn(Optional.of(store(acme(), "Downtown")));
 
         mockMvc.perform(get("/api/v1/stores/1"))
                 .andExpect(status().isOk())
@@ -143,7 +167,7 @@ class StoreControllerTest {
     @Test
     @DisplayName("GET /api/v1/stores/{id} returns 404 ProblemDetail when missing")
     void getStoreMissingReturns404() throws Exception {
-        when(storeService.getStoreById(99L)).thenReturn(Optional.empty());
+        when(storeService.getStoreById(99L, BRAND_ID)).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/api/v1/stores/99"))
                 .andExpect(status().isNotFound())
@@ -152,12 +176,26 @@ class StoreControllerTest {
                 .andExpect(jsonPath("$.detail").value(containsString("99")));
     }
 
+    @Test
+    @DisplayName("GET /api/v1/stores/{id} reports another brand's store as 404")
+    void getStoreOutsideBrandReturns404() throws Exception {
+        // The service's scoped lookup answers empty for a store in another
+        // brand, so the controller cannot distinguish it from a missing row.
+        when(storeService.getStoreById(42L, BRAND_ID)).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/v1/stores/42"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.title").value("Store not found"));
+
+        verify(storeService).getStoreById(42L, BRAND_ID);
+    }
+
     // --- POST /api/v1/stores ---
 
     @Test
     @DisplayName("POST /api/v1/stores creates a new store and returns 201")
     void createStoreReturns201() throws Exception {
-        when(storeService.createStore(any(Store.class), eq(1L)))
+        when(storeService.createStore(any(Store.class), eq(1L), eq(BRAND_ID)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
         mockMvc.perform(post("/api/v1/stores")
@@ -173,7 +211,7 @@ class StoreControllerTest {
     @Test
     @DisplayName("POST /api/v1/stores honours active=false")
     void createStoreHonoursInactive() throws Exception {
-        when(storeService.createStore(any(Store.class), eq(1L)))
+        when(storeService.createStore(any(Store.class), eq(1L), eq(BRAND_ID)))
                 .thenAnswer(inv -> {
                     Store s = inv.getArgument(0);
                     s.setActive(false);
@@ -192,7 +230,7 @@ class StoreControllerTest {
     @Test
     @DisplayName("POST /api/v1/stores accepts an optional storeNumber and echoes it back")
     void createStoreWithStoreNumberReturns201() throws Exception {
-        when(storeService.createStore(any(Store.class), eq(1L)))
+        when(storeService.createStore(any(Store.class), eq(1L), eq(BRAND_ID)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
         mockMvc.perform(post("/api/v1/stores")
@@ -282,7 +320,7 @@ class StoreControllerTest {
     @Test
     @DisplayName("POST /api/v1/stores surfaces unknown organization as 404")
     void createStoreUnknownOrganizationReturns404() throws Exception {
-        when(storeService.createStore(any(Store.class), eq(99L)))
+        when(storeService.createStore(any(Store.class), eq(99L), eq(BRAND_ID)))
                 .thenThrow(new OrganizationNotFoundException(99L));
 
         mockMvc.perform(post("/api/v1/stores")
@@ -295,7 +333,7 @@ class StoreControllerTest {
     @Test
     @DisplayName("POST /api/v1/stores surfaces a duplicate store number as 400")
     void createStoreDuplicateStoreNumberReturns400() throws Exception {
-        when(storeService.createStore(any(Store.class), eq(1L)))
+        when(storeService.createStore(any(Store.class), eq(1L), eq(BRAND_ID)))
                 .thenThrow(new OrganizationValidationException(
                         "Store number already exists in organization: organizationId=1, storeNumber=0042"));
 
@@ -317,7 +355,8 @@ class StoreControllerTest {
         Organization globex = new Organization("Globex");
         Store updated = store(globex, "New Name");
         updated.setActive(false);
-        when(storeService.updateStore(eq(1L), any(Store.class), eq(2L))).thenReturn(updated);
+        when(storeService.updateStore(eq(1L), any(Store.class), eq(2L), eq(BRAND_ID)))
+                .thenReturn(updated);
 
         mockMvc.perform(put("/api/v1/stores/1")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -333,7 +372,7 @@ class StoreControllerTest {
     @Test
     @DisplayName("PUT /api/v1/stores/{id} returns 404 when the store is missing")
     void updateStoreMissingReturns404() throws Exception {
-        when(storeService.updateStore(eq(99L), any(Store.class), eq(1L)))
+        when(storeService.updateStore(eq(99L), any(Store.class), eq(1L), eq(BRAND_ID)))
                 .thenThrow(new StoreNotFoundException(99L));
 
         mockMvc.perform(put("/api/v1/stores/99")
@@ -346,7 +385,7 @@ class StoreControllerTest {
     @Test
     @DisplayName("PUT /api/v1/stores/{id} returns 404 when the target organization is missing")
     void updateStoreUnknownOrganizationReturns404() throws Exception {
-        when(storeService.updateStore(eq(1L), any(Store.class), eq(99L)))
+        when(storeService.updateStore(eq(1L), any(Store.class), eq(99L), eq(BRAND_ID)))
                 .thenThrow(new OrganizationNotFoundException(99L));
 
         mockMvc.perform(put("/api/v1/stores/1")
@@ -364,14 +403,14 @@ class StoreControllerTest {
         mockMvc.perform(delete("/api/v1/stores/1"))
                 .andExpect(status().isNoContent());
 
-        verify(storeService).deleteStore(1L);
+        verify(storeService).deleteStore(1L, BRAND_ID);
     }
 
     @Test
     @DisplayName("DELETE /api/v1/stores/{id} surfaces service errors as 400 ProblemDetail")
     void deleteStoreRejectsWhenServiceRefuses() throws Exception {
         doThrow(new OrganizationValidationException("unexpected rule"))
-                .when(storeService).deleteStore(1L);
+                .when(storeService).deleteStore(1L, BRAND_ID);
 
         mockMvc.perform(delete("/api/v1/stores/1"))
                 .andExpect(status().isBadRequest())

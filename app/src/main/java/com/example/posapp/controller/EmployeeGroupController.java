@@ -3,6 +3,7 @@ package com.example.posapp.controller;
 import java.util.List;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,6 +18,7 @@ import com.example.posapp.dto.EmployeeGroupResponse;
 import com.example.posapp.dto.EmployeeGroupUpdateRequest;
 import com.example.posapp.entity.EmployeeGroup;
 import com.example.posapp.exception.EmployeeGroupNotFoundException;
+import com.example.posapp.security.BackOfficePrincipal;
 import com.example.posapp.service.EmployeeGroupService;
 
 import jakarta.validation.Valid;
@@ -34,6 +36,11 @@ import jakarta.validation.Valid;
  * Root groups are also reachable through the organization sub-resource at
  * {@code /api/v1/organizations/{id}/employee-groups}.
  * </p>
+ * <p>
+ * Every handler is confined to the caller's brand, so a group - or a
+ * requested parent - belonging to another brand answers {@code 404} exactly
+ * like a group that does not exist.
+ * </p>
  */
 @RestController
 @RequestMapping("/api/v1/employee-groups")
@@ -50,80 +57,101 @@ public class EmployeeGroupController {
     }
 
     /**
-     * List every employee group.
-     * @return all employee groups as API responses
+     * List the employee groups in the caller's brand.
+     * @param principal the authenticated caller, whose brand scopes the request
+     * @return all employee groups of that brand as API responses
      */
     @GetMapping
-    public List<EmployeeGroupResponse> getEmployeeGroups() {
-        return employeeGroupService.getAllEmployeeGroups().stream()
+    public List<EmployeeGroupResponse> getEmployeeGroups(
+            @AuthenticationPrincipal BackOfficePrincipal principal) {
+        return employeeGroupService.getAllEmployeeGroups(principal.organizationId()).stream()
                 .map(EmployeeGroupResponse::from)
                 .toList();
     }
 
     /**
-     * Get an employee group by ID. Child groups are exposed through the
-     * dedicated {@code /{id}/children} sub-resource rather than embedded
-     * here.
+     * Get an employee group by ID, within the caller's brand. Child groups
+     * are exposed through the dedicated {@code /{id}/children} sub-resource
+     * rather than embedded here.
      * @param id the employee group ID
+     * @param principal the authenticated caller, whose brand scopes the request
      * @return the employee group
      * @throws EmployeeGroupNotFoundException if no group exists with the ID
+     *         in the caller's brand
      */
     @GetMapping("/{id}")
-    public ResponseEntity<EmployeeGroupResponse> getEmployeeGroup(@PathVariable Long id) {
-        EmployeeGroup group = employeeGroupService.getEmployeeGroupById(id)
+    public ResponseEntity<EmployeeGroupResponse> getEmployeeGroup(
+            @PathVariable Long id,
+            @AuthenticationPrincipal BackOfficePrincipal principal) {
+        EmployeeGroup group = employeeGroupService
+                .getEmployeeGroupById(id, principal.organizationId())
                 .orElseThrow(() -> new EmployeeGroupNotFoundException(id));
         return ResponseEntity.ok(EmployeeGroupResponse.from(group));
     }
 
     /**
-     * Create a new employee group owned by the specified organization,
-     * optionally below the specified parent group.
+     * Create a new employee group in the caller's brand, optionally below
+     * the specified parent group. The payload's organization must be that
+     * brand.
      * @param request the validated employee group creation payload
+     * @param principal the authenticated caller, whose brand scopes the request
      * @return the created employee group
      */
     @PostMapping
     public ResponseEntity<EmployeeGroupResponse> createEmployeeGroup(
-            @Valid @RequestBody EmployeeGroupRequest request) {
+            @Valid @RequestBody EmployeeGroupRequest request,
+            @AuthenticationPrincipal BackOfficePrincipal principal) {
         EmployeeGroup saved = employeeGroupService.createEmployeeGroup(
-                request.toEntity(), request.organizationId(), request.parentId());
+                request.toEntity(), request.organizationId(), request.parentId(),
+                principal.organizationId());
         return ResponseEntity.status(201).body(EmployeeGroupResponse.from(saved));
     }
 
     /**
-     * Update an existing employee group's name, active flag, and parent.
-     * The owning organization is fixed at creation.
+     * Update an existing employee group's name, active flag, and parent,
+     * within the caller's brand. The owning organization is fixed at
+     * creation.
      * @param id the employee group ID
      * @param request the replacement values
+     * @param principal the authenticated caller, whose brand scopes the request
      * @return the updated employee group
      */
     @PutMapping("/{id}")
     public EmployeeGroupResponse updateEmployeeGroup(
             @PathVariable Long id,
-            @Valid @RequestBody EmployeeGroupUpdateRequest request) {
-        return EmployeeGroupResponse.from(
-                employeeGroupService.updateEmployeeGroup(id, request.toEntity(), request.parentId()));
+            @Valid @RequestBody EmployeeGroupUpdateRequest request,
+            @AuthenticationPrincipal BackOfficePrincipal principal) {
+        return EmployeeGroupResponse.from(employeeGroupService.updateEmployeeGroup(
+                id, request.toEntity(), request.parentId(), principal.organizationId()));
     }
 
     /**
-     * Delete an employee group by ID. Groups that still have child groups
-     * are rejected with 400.
+     * Delete an employee group by ID, within the caller's brand. Groups that
+     * still have child groups are rejected with 400.
      * @param id the employee group ID
+     * @param principal the authenticated caller, whose brand scopes the request
      * @return 204 No Content
      */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteEmployeeGroup(@PathVariable Long id) {
-        employeeGroupService.deleteEmployeeGroup(id);
+    public ResponseEntity<Void> deleteEmployeeGroup(
+            @PathVariable Long id,
+            @AuthenticationPrincipal BackOfficePrincipal principal) {
+        employeeGroupService.deleteEmployeeGroup(id, principal.organizationId());
         return ResponseEntity.noContent().build();
     }
 
     /**
-     * List the direct child groups of an employee group.
+     * List the direct child groups of an employee group, within the
+     * caller's brand.
      * @param id the parent group ID
+     * @param principal the authenticated caller, whose brand scopes the request
      * @return the child groups of the parent
      */
     @GetMapping("/{id}/children")
-    public List<EmployeeGroupResponse> listChildGroups(@PathVariable Long id) {
-        return employeeGroupService.listChildGroups(id).stream()
+    public List<EmployeeGroupResponse> listChildGroups(
+            @PathVariable Long id,
+            @AuthenticationPrincipal BackOfficePrincipal principal) {
+        return employeeGroupService.listChildGroups(id, principal.organizationId()).stream()
                 .map(EmployeeGroupResponse::from)
                 .toList();
     }

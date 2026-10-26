@@ -81,15 +81,17 @@ public class EmployeePinService {
      * whole change is rejected and the employee keeps the previous PIN.
      * @param employeeId the employee ID
      * @param rawPin the PIN as submitted, digits only
+     * @param brandId the organization the caller may act within
      * @return the persisted credential (secret material is write-only;
      *         callers must not serialize it into a response)
-     * @throws EmployeeNotFoundException if the employee does not exist
+     * @throws EmployeeNotFoundException if the employee does not exist in
+     *         the brand
      * @throws EmployeePinValidationException for a malformed PIN, an
      *         inactive employee, or a store-scoped uniqueness conflict
      */
-    public EmployeePinCredential setPin(Long employeeId, String rawPin) {
+    public EmployeePinCredential setPin(Long employeeId, String rawPin, Long brandId) {
         String pin = validateFormat(rawPin);
-        Employee employee = employeeRepo.findById(employeeId)
+        Employee employee = employeeRepo.findByIdAndOrganizationId(employeeId, brandId)
                 .orElseThrow(() -> new EmployeeNotFoundException(employeeId));
         if (!employee.isActive()) {
             throw new EmployeePinValidationException(
@@ -122,10 +124,12 @@ public class EmployeePinService {
      * may be removed as well - the active-only rule guards usage (setting),
      * not cleanup. Missing employees are 404.
      * @param employeeId the employee ID
-     * @throws EmployeeNotFoundException if the employee does not exist
+     * @param brandId the organization the caller may act within
+     * @throws EmployeeNotFoundException if the employee does not exist in
+     *         the brand
      */
-    public void removePin(Long employeeId) {
-        if (!employeeRepo.existsById(employeeId)) {
+    public void removePin(Long employeeId, Long brandId) {
+        if (employeeRepo.findByIdAndOrganizationId(employeeId, brandId).isEmpty()) {
             throw new EmployeeNotFoundException(employeeId);
         }
         pinWriter.removePin(employeeId);

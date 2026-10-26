@@ -268,8 +268,9 @@ class BackOfficeSecurityIntegrationTest {
 
     private String posSessionToken() {
         Employee barista = employeeRepository.save(employee(denverStore.getOrganization(), "Barista", null));
-        assignmentService.assignEmployeeToStore(barista.getId(), denverStore.getId());
-        pinService.setPin(barista.getId(), "2468");
+        assignmentService.assignEmployeeToStore(
+                barista.getId(), denverStore.getId(), denverStore.getOrganization().getId());
+        pinService.setPin(barista.getId(), "2468", denverStore.getOrganization().getId());
         return posAuthenticationService
                 .authenticate(denverStore.getId(), "2468", "back-office-test-" + System.nanoTime())
                 .token();

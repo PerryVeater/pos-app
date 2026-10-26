@@ -3,6 +3,7 @@ package com.example.posapp.controller;
 import java.util.List;
 import java.util.Optional;
 
+import static com.example.posapp.controller.BrandScopeTestSupport.BRAND_ID;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
@@ -19,6 +20,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +46,12 @@ import com.example.posapp.service.EmployeeGroupService;
  * responses returned for client errors. Entities are never persisted, so
  * only the non-ID fields of the representation are asserted here.
  * </p>
+ * <p>
+ * Every call is asserted to carry the caller's brand. Because the service
+ * scopes both the group and the requested parent to that brand, a group or
+ * parent belonging to another brand reaches the controller as a 404, which
+ * is the answer these tests expect for the unknown-ID cases.
+ * </p>
  */
 @WebMvcTest(EmployeeGroupController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -54,6 +63,16 @@ class EmployeeGroupControllerTest {
     @MockitoBean
     private EmployeeGroupService employeeGroupService;
 
+    @BeforeEach
+    void signIn() {
+        BrandScopeTestSupport.signIn();
+    }
+
+    @AfterEach
+    void signOut() {
+        BrandScopeTestSupport.signOut();
+    }
+
     private static EmployeeGroup group(String name) {
         return new EmployeeGroup(name);
     }
@@ -63,18 +82,20 @@ class EmployeeGroupControllerTest {
     @Test
     @DisplayName("GET /api/v1/employee-groups returns an empty list")
     void listEmployeeGroupsEmpty() throws Exception {
-        when(employeeGroupService.getAllEmployeeGroups()).thenReturn(List.of());
+        when(employeeGroupService.getAllEmployeeGroups(BRAND_ID)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/v1/employee-groups"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$", hasSize(0)));
+
+        verify(employeeGroupService).getAllEmployeeGroups(BRAND_ID);
     }
 
     @Test
     @DisplayName("GET /api/v1/employee-groups returns every group without embedding children")
     void listEmployeeGroupsReturnsAll() throws Exception {
-        when(employeeGroupService.getAllEmployeeGroups())
+        when(employeeGroupService.getAllEmployeeGroups(BRAND_ID))
                 .thenReturn(List.of(group("Front of House"), group("Back of House")));
 
         mockMvc.perform(get("/api/v1/employee-groups"))
@@ -90,7 +111,7 @@ class EmployeeGroupControllerTest {
     @Test
     @DisplayName("GET /api/v1/employee-groups/{id} returns the group")
     void getEmployeeGroupReturns200() throws Exception {
-        when(employeeGroupService.getEmployeeGroupById(1L))
+        when(employeeGroupService.getEmployeeGroupById(1L, BRAND_ID))
                 .thenReturn(Optional.of(group("Front of House")));
 
         mockMvc.perform(get("/api/v1/employee-groups/1"))
@@ -102,7 +123,7 @@ class EmployeeGroupControllerTest {
     @Test
     @DisplayName("GET /api/v1/employee-groups/{id} returns 404 ProblemDetail when missing")
     void getEmployeeGroupMissingReturns404() throws Exception {
-        when(employeeGroupService.getEmployeeGroupById(99L)).thenReturn(Optional.empty());
+        when(employeeGroupService.getEmployeeGroupById(99L, BRAND_ID)).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/api/v1/employee-groups/99"))
                 .andExpect(status().isNotFound())
@@ -123,7 +144,8 @@ class EmployeeGroupControllerTest {
     @Test
     @DisplayName("POST /api/v1/employee-groups creates a root group and returns 201")
     void createEmployeeGroupReturns201() throws Exception {
-        when(employeeGroupService.createEmployeeGroup(any(EmployeeGroup.class), eq(1L), isNull()))
+        when(employeeGroupService.createEmployeeGroup(
+                any(EmployeeGroup.class), eq(1L), isNull(), eq(BRAND_ID)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
         mockMvc.perform(post("/api/v1/employee-groups")
@@ -137,7 +159,8 @@ class EmployeeGroupControllerTest {
     @Test
     @DisplayName("POST /api/v1/employee-groups honours parentId and active=false")
     void createEmployeeGroupWithParentHonoursInactive() throws Exception {
-        when(employeeGroupService.createEmployeeGroup(any(EmployeeGroup.class), eq(1L), eq(2L)))
+        when(employeeGroupService.createEmployeeGroup(
+                any(EmployeeGroup.class), eq(1L), eq(2L), eq(BRAND_ID)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
         mockMvc.perform(post("/api/v1/employee-groups")
@@ -184,7 +207,8 @@ class EmployeeGroupControllerTest {
     @Test
     @DisplayName("POST /api/v1/employee-groups surfaces an unknown organization as 404 ProblemDetail")
     void createEmployeeGroupUnknownOrganizationReturns404() throws Exception {
-        when(employeeGroupService.createEmployeeGroup(any(EmployeeGroup.class), eq(99L), isNull()))
+        when(employeeGroupService.createEmployeeGroup(
+                any(EmployeeGroup.class), eq(99L), isNull(), eq(BRAND_ID)))
                 .thenThrow(new OrganizationNotFoundException(99L));
 
         mockMvc.perform(post("/api/v1/employee-groups")
@@ -197,26 +221,28 @@ class EmployeeGroupControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/v1/employee-groups surfaces a cross-organization parent as 400 ProblemDetail")
-    void createEmployeeGroupCrossOrganizationParentReturns400() throws Exception {
-        when(employeeGroupService.createEmployeeGroup(any(EmployeeGroup.class), eq(1L), eq(2L)))
-                .thenThrow(new EmployeeGroupValidationException(
-                        "Parent and child employee groups must belong to the same organization:"
-                                + " parentId=2, organizationId=1"));
+    @DisplayName("POST /api/v1/employee-groups surfaces a parent from another brand as 404 ProblemDetail")
+    void createEmployeeGroupParentOutsideBrandReturns404() throws Exception {
+        // The parent lookup is scoped to the brand, so another brand's group
+        // is indistinguishable from a missing one and never becomes a 400.
+        when(employeeGroupService.createEmployeeGroup(
+                any(EmployeeGroup.class), eq(1L), eq(2L), eq(BRAND_ID)))
+                .thenThrow(new EmployeeGroupNotFoundException(2L));
 
         mockMvc.perform(post("/api/v1/employee-groups")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"organizationId\":1,\"name\":\"Cashiers\",\"parentId\":2}"))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isNotFound())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-                .andExpect(jsonPath("$.title").value("Invalid employee group"))
-                .andExpect(jsonPath("$.detail").value(containsString("same organization")));
+                .andExpect(jsonPath("$.title").value("Employee group not found"))
+                .andExpect(jsonPath("$.detail").value(containsString("2")));
     }
 
     @Test
     @DisplayName("POST /api/v1/employee-groups surfaces an unknown parent as 404 ProblemDetail")
     void createEmployeeGroupUnknownParentReturns404() throws Exception {
-        when(employeeGroupService.createEmployeeGroup(any(EmployeeGroup.class), eq(1L), eq(99L)))
+        when(employeeGroupService.createEmployeeGroup(
+                any(EmployeeGroup.class), eq(1L), eq(99L), eq(BRAND_ID)))
                 .thenThrow(new EmployeeGroupNotFoundException(99L));
 
         mockMvc.perform(post("/api/v1/employee-groups")
@@ -234,7 +260,8 @@ class EmployeeGroupControllerTest {
     void updateEmployeeGroupReturns200() throws Exception {
         EmployeeGroup updated = group("Front of House Team");
         updated.setActive(false);
-        when(employeeGroupService.updateEmployeeGroup(eq(1L), any(EmployeeGroup.class), isNull()))
+        when(employeeGroupService.updateEmployeeGroup(
+                eq(1L), any(EmployeeGroup.class), isNull(), eq(BRAND_ID)))
                 .thenReturn(updated);
 
         mockMvc.perform(put("/api/v1/employee-groups/1")
@@ -248,7 +275,8 @@ class EmployeeGroupControllerTest {
     @Test
     @DisplayName("PUT /api/v1/employee-groups/{id} returns 404 when missing")
     void updateEmployeeGroupMissingReturns404() throws Exception {
-        when(employeeGroupService.updateEmployeeGroup(eq(99L), any(EmployeeGroup.class), isNull()))
+        when(employeeGroupService.updateEmployeeGroup(
+                eq(99L), any(EmployeeGroup.class), isNull(), eq(BRAND_ID)))
                 .thenThrow(new EmployeeGroupNotFoundException(99L));
 
         mockMvc.perform(put("/api/v1/employee-groups/99")
@@ -271,7 +299,8 @@ class EmployeeGroupControllerTest {
     @Test
     @DisplayName("PUT /api/v1/employee-groups/{id} surfaces self-parenting as 400 ProblemDetail")
     void updateEmployeeGroupSelfParentReturns400() throws Exception {
-        when(employeeGroupService.updateEmployeeGroup(eq(1L), any(EmployeeGroup.class), eq(1L)))
+        when(employeeGroupService.updateEmployeeGroup(
+                eq(1L), any(EmployeeGroup.class), eq(1L), eq(BRAND_ID)))
                 .thenThrow(new EmployeeGroupValidationException(
                         "Employee group cannot be its own parent: 1"));
 
@@ -292,14 +321,14 @@ class EmployeeGroupControllerTest {
         mockMvc.perform(delete("/api/v1/employee-groups/1"))
                 .andExpect(status().isNoContent());
 
-        verify(employeeGroupService).deleteEmployeeGroup(1L);
+        verify(employeeGroupService).deleteEmployeeGroup(1L, BRAND_ID);
     }
 
     @Test
     @DisplayName("DELETE /api/v1/employee-groups/{id} returns 404 when missing")
     void deleteEmployeeGroupMissingReturns404() throws Exception {
         doThrow(new EmployeeGroupNotFoundException(99L))
-                .when(employeeGroupService).deleteEmployeeGroup(99L);
+                .when(employeeGroupService).deleteEmployeeGroup(99L, BRAND_ID);
 
         mockMvc.perform(delete("/api/v1/employee-groups/99"))
                 .andExpect(status().isNotFound())
@@ -311,7 +340,7 @@ class EmployeeGroupControllerTest {
     void deleteEmployeeGroupWithChildrenReturns400() throws Exception {
         doThrow(new EmployeeGroupValidationException(
                 "Cannot delete employee group still having child groups: 1"))
-                .when(employeeGroupService).deleteEmployeeGroup(1L);
+                .when(employeeGroupService).deleteEmployeeGroup(1L, BRAND_ID);
 
         mockMvc.perform(delete("/api/v1/employee-groups/1"))
                 .andExpect(status().isBadRequest())
@@ -325,7 +354,7 @@ class EmployeeGroupControllerTest {
     @Test
     @DisplayName("GET /api/v1/employee-groups/{id}/children returns the direct children")
     void listChildrenReturnsChildren() throws Exception {
-        when(employeeGroupService.listChildGroups(1L))
+        when(employeeGroupService.listChildGroups(1L, BRAND_ID))
                 .thenReturn(List.of(group("Cashiers"), group("Hosts")));
 
         mockMvc.perform(get("/api/v1/employee-groups/1/children"))
@@ -338,7 +367,7 @@ class EmployeeGroupControllerTest {
     @Test
     @DisplayName("GET /api/v1/employee-groups/{id}/children returns an empty array for a leaf group")
     void listChildrenEmptyReturnsEmptyArray() throws Exception {
-        when(employeeGroupService.listChildGroups(1L)).thenReturn(List.of());
+        when(employeeGroupService.listChildGroups(1L, BRAND_ID)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/v1/employee-groups/1/children"))
                 .andExpect(status().isOk())
@@ -348,7 +377,7 @@ class EmployeeGroupControllerTest {
     @Test
     @DisplayName("GET /api/v1/employee-groups/{id}/children returns 404 when the parent is missing")
     void listChildrenMissingParentReturns404() throws Exception {
-        when(employeeGroupService.listChildGroups(99L))
+        when(employeeGroupService.listChildGroups(99L, BRAND_ID))
                 .thenThrow(new EmployeeGroupNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/employee-groups/99/children"))

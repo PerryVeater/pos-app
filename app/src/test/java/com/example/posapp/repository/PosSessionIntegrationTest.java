@@ -103,7 +103,7 @@ class PosSessionIntegrationTest {
     @DisplayName("authentication issues a session that stores only the hash and survives use and logout")
     void fullLifecycleStoresHashOnly() {
         Fixture fx = fixture(true, true, true);
-        pinService.setPin(fx.employee.getId(), "0421");
+        pinService.setPin(fx.employee.getId(), "0421", fx.organization.getId());
 
         PosAuthenticateResponse auth =
                 authenticationService.authenticate(fx.store.getId(), "0421", "lc-client");
@@ -138,7 +138,7 @@ class PosSessionIntegrationTest {
     @DisplayName("an expired session is rejected")
     void expiredSessionRejected() {
         Fixture fx = fixture(true, true, true);
-        pinService.setPin(fx.employee.getId(), "1234");
+        pinService.setPin(fx.employee.getId(), "1234", fx.organization.getId());
         String rawToken = authenticationService
                 .authenticate(fx.store.getId(), "1234", "exp-client").token();
 
@@ -164,7 +164,7 @@ class PosSessionIntegrationTest {
     @DisplayName("wrong PIN, inactive employee, and unassigned employee all fail generically")
     void credentialFailuresAreGeneric() {
         Fixture fx = fixture(true, true, true);
-        pinService.setPin(fx.employee.getId(), "0421");
+        pinService.setPin(fx.employee.getId(), "0421", fx.organization.getId());
 
         // Wrong PIN.
         assertThatThrownBy(() -> authenticationService.authenticate(
@@ -209,8 +209,9 @@ class PosSessionIntegrationTest {
     void sameEmployeeSamePinAcrossStores() {
         Fixture fx = fixture(true, true, true);
         Store second = newStore(fx.organization, "Second Store");
-        assignmentService.assignEmployeeToStore(fx.employee.getId(), second.getId());
-        pinService.setPin(fx.employee.getId(), "7788");
+        assignmentService.assignEmployeeToStore(
+                fx.employee.getId(), second.getId(), fx.organization.getId());
+        pinService.setPin(fx.employee.getId(), "7788", fx.organization.getId());
 
         String tokenA = authenticationService
                 .authenticate(fx.store.getId(), "7788", "multi-client").token();
@@ -229,7 +230,7 @@ class PosSessionIntegrationTest {
     @DisplayName("removing the employee cascades away their sessions")
     void employeeRemovalCascadesSessions() {
         Fixture fx = fixture(true, true, true);
-        pinService.setPin(fx.employee.getId(), "5566");
+        pinService.setPin(fx.employee.getId(), "5566", fx.organization.getId());
         authenticationService.authenticate(fx.store.getId(), "5566", "cascade-client");
         assertThat(sessionRepository.count()).isEqualTo(1);
 
@@ -259,14 +260,14 @@ class PosSessionIntegrationTest {
         Employee[] staff = new Employee[pins.length];
         for (int i = 0; i < pins.length; i++) {
             staff[i] = newEmployee(org, "Many Employee " + i, true);
-            assignmentService.assignEmployeeToStore(staff[i].getId(), store.getId());
-            pinService.setPin(staff[i].getId(), pins[i]);
+            assignmentService.assignEmployeeToStore(staff[i].getId(), store.getId(), org.getId());
+            pinService.setPin(staff[i].getId(), pins[i], org.getId());
         }
         // A seventh employee holds a PIN, but only at a different store.
         Employee elsewhere = newEmployee(org, "Elsewhere Ada", true);
         Store otherStore = newStore(org, "Airport");
-        assignmentService.assignEmployeeToStore(elsewhere.getId(), otherStore.getId());
-        pinService.setPin(elsewhere.getId(), "1007");
+        assignmentService.assignEmployeeToStore(elsewhere.getId(), otherStore.getId(), org.getId());
+        pinService.setPin(elsewhere.getId(), "1007", org.getId());
 
         // Headcount at the store never changes the answer: one claim row
         // matches, and it carries the right employee.
@@ -292,7 +293,7 @@ class PosSessionIntegrationTest {
     @DisplayName("rotating a PIN revokes the sessions issued under the old one")
     void pinRotationRevokesSessions() {
         Fixture fx = fixture(true, true, true);
-        pinService.setPin(fx.employee.getId(), "1234");
+        pinService.setPin(fx.employee.getId(), "1234", fx.organization.getId());
         String issuedUnderOldPin = authenticationService
                 .authenticate(fx.store.getId(), "1234", "rotate-a").token();
         // Prove the token is good before the rotation, so the failure below
@@ -300,7 +301,7 @@ class PosSessionIntegrationTest {
         assertThat(sessionService.currentSession("Bearer " + issuedUnderOldPin).employeeId())
                 .isEqualTo(fx.employee.getId());
 
-        pinService.setPin(fx.employee.getId(), "5678");
+        pinService.setPin(fx.employee.getId(), "5678", fx.organization.getId());
 
         // Whoever knew the old PIN may still be holding the token.
         assertThatThrownBy(() -> sessionService.currentSession("Bearer " + issuedUnderOldPin))
@@ -316,13 +317,14 @@ class PosSessionIntegrationTest {
     @DisplayName("deactivating an employee revokes their live sessions")
     void deactivationRevokesSessions() {
         Fixture fx = fixture(true, true, true);
-        pinService.setPin(fx.employee.getId(), "2345");
+        pinService.setPin(fx.employee.getId(), "2345", fx.organization.getId());
         String token = authenticationService
                 .authenticate(fx.store.getId(), "2345", "deact-a").token();
 
         Employee deactivated = new Employee(fx.employee.getName());
         deactivated.setActive(false);
-        employeeService.updateEmployee(fx.employee.getId(), deactivated, fx.organization.getId());
+        employeeService.updateEmployee(fx.employee.getId(), deactivated,
+                fx.organization.getId(), fx.organization.getId());
 
         assertThatThrownBy(() -> sessionService.currentSession("Bearer " + token))
                 .isInstanceOf(PosSessionInvalidException.class);
@@ -337,14 +339,16 @@ class PosSessionIntegrationTest {
     void assignmentRemovalRevokesOnlyThatStoresSessions() {
         Fixture fx = fixture(true, true, true);
         Store second = newStore(fx.organization, "Second Store");
-        assignmentService.assignEmployeeToStore(fx.employee.getId(), second.getId());
-        pinService.setPin(fx.employee.getId(), "3456");
+        assignmentService.assignEmployeeToStore(
+                fx.employee.getId(), second.getId(), fx.organization.getId());
+        pinService.setPin(fx.employee.getId(), "3456", fx.organization.getId());
         String atFirst = authenticationService
                 .authenticate(fx.store.getId(), "3456", "assign-a").token();
         String atSecond = authenticationService
                 .authenticate(second.getId(), "3456", "assign-b").token();
 
-        assignmentService.removeEmployeeFromStore(fx.employee.getId(), second.getId());
+        assignmentService.removeEmployeeFromStore(
+                fx.employee.getId(), second.getId(), fx.organization.getId());
 
         assertThatThrownBy(() -> sessionService.currentSession("Bearer " + atSecond))
                 .isInstanceOf(PosSessionInvalidException.class);
@@ -360,7 +364,7 @@ class PosSessionIntegrationTest {
     @DisplayName("logging in beyond the per-employee cap revokes the oldest session")
     void perEmployeeCapRevokesOldestSession() {
         Fixture fx = fixture(true, true, true);
-        pinService.setPin(fx.employee.getId(), "4567");
+        pinService.setPin(fx.employee.getId(), "4567", fx.organization.getId());
         int cap = sessionProperties.maxPerEmployee();
         List<String> tokens = new ArrayList<>();
         for (int attempt = 0; attempt <= cap; attempt++) {
@@ -384,8 +388,9 @@ class PosSessionIntegrationTest {
     void purgeIsBoundedAndRespectsRetention() {
         Fixture fx = fixture(true, true, true);
         Store second = newStore(fx.organization, "Second Store");
-        assignmentService.assignEmployeeToStore(fx.employee.getId(), second.getId());
-        pinService.setPin(fx.employee.getId(), "6789");
+        assignmentService.assignEmployeeToStore(
+                fx.employee.getId(), second.getId(), fx.organization.getId());
+        pinService.setPin(fx.employee.getId(), "6789", fx.organization.getId());
         authenticationService.authenticate(fx.store.getId(), "6789", "purge-a");
         authenticationService.authenticate(fx.store.getId(), "6789", "purge-b");
         String retained = authenticationService
@@ -429,7 +434,7 @@ class PosSessionIntegrationTest {
         store.setActive(storeActive);
         storeRepository.save(store);
         if (assign) {
-            assignmentService.assignEmployeeToStore(employee.getId(), store.getId());
+            assignmentService.assignEmployeeToStore(employee.getId(), store.getId(), org.getId());
         }
         return new Fixture(org, employee, store);
     }

@@ -122,8 +122,8 @@ class PinSecretAnchorIntegrationTest {
         Organization org = newOrg("INT-ANCHOR-REFUSE Acme");
         Store store = newStore(org, "INT-ANCHOR-REFUSE Store");
         Employee employee = newEmployee(org, "INT-ANCHOR-REFUSE Ada");
-        assignmentService.assignEmployeeToStore(employee.getId(), store.getId());
-        pinService.setPin(employee.getId(), PIN);
+        assignmentService.assignEmployeeToStore(employee.getId(), store.getId(), org.getId());
+        pinService.setPin(employee.getId(), PIN, org.getId());
 
         assertThat(claimCount()).isEqualTo(1);
 
@@ -144,8 +144,8 @@ class PinSecretAnchorIntegrationTest {
         Organization org = newOrg("INT-ANCHOR-RESET Acme");
         Store store = newStore(org, "INT-ANCHOR-RESET Store");
         Employee employee = newEmployee(org, "INT-ANCHOR-RESET Ada");
-        assignmentService.assignEmployeeToStore(employee.getId(), store.getId());
-        pinService.setPin(employee.getId(), PIN);
+        assignmentService.assignEmployeeToStore(employee.getId(), store.getId(), org.getId());
+        pinService.setPin(employee.getId(), PIN, org.getId());
         assertThat(claimCount()).isEqualTo(1);
 
         guard(ROTATED_SECRET, true).verifyOrAnchor();
@@ -168,8 +168,8 @@ class PinSecretAnchorIntegrationTest {
         Organization org = newOrg("INT-ANCHOR-REENROLL Acme");
         Store store = newStore(org, "INT-ANCHOR-REENROLL Store");
         Employee employee = newEmployee(org, "INT-ANCHOR-REENROLL Ada");
-        assignmentService.assignEmployeeToStore(employee.getId(), store.getId());
-        pinService.setPin(employee.getId(), PIN);
+        assignmentService.assignEmployeeToStore(employee.getId(), store.getId(), org.getId());
+        pinService.setPin(employee.getId(), PIN, org.getId());
 
         guard(ROTATED_SECRET, true).verifyOrAnchor();
         assertThat(claimCount()).isZero();
@@ -181,7 +181,7 @@ class PinSecretAnchorIntegrationTest {
         // Re-enrollment is the supported recovery, and it does not need the
         // credential to be recreated: setting the PIN writes the claim back
         // under whichever secret the running application holds.
-        pinService.setPin(employee.getId(), PIN);
+        pinService.setPin(employee.getId(), PIN, org.getId());
 
         assertThat(claimCount()).isEqualTo(1);
         assertThat(credentialCount()).isEqualTo(1);

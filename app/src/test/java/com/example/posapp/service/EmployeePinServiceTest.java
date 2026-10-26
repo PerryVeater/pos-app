@@ -39,9 +39,20 @@ import com.example.posapp.repository.EmployeeRepository;
  * Store-scoped uniqueness itself is a database guarantee and is covered by
  * the Testcontainers integration tests.
  * </p>
+ * <p>
+ * The employee lookup carries the caller's brand, so an employee of another
+ * brand is asserted to be indistinguishable from a missing one: no PIN can
+ * be set or cleared across brands, and the writer never runs.
+ * </p>
  */
 @ExtendWith(MockitoExtension.class)
 class EmployeePinServiceTest {
+
+    /** The caller's brand. */
+    private static final long BRAND = 1L;
+
+    /** A second brand the caller must never reach. */
+    private static final long OTHER_BRAND = 2L;
 
     @Mock
     private EmployeeRepository employeeRepo;
@@ -73,7 +84,7 @@ class EmployeePinServiceTest {
         EmployeePinService service = newService();
 
         for (String bad : new String[]{"123", "1234567", "abcd", "12-34", "1234 ", " 1234", ""}) {
-            assertThatThrownBy(() -> service.setPin(1L, bad))
+            assertThatThrownBy(() -> service.setPin(1L, bad, BRAND))
                     .as("PIN '%s' should be rejected", bad)
                     .isInstanceOf(EmployeePinValidationException.class)
                     .hasMessageContaining("digits");
@@ -87,7 +98,7 @@ class EmployeePinServiceTest {
     void nullPinRejected() {
         EmployeePinService service = newService();
 
-        assertThatThrownBy(() -> service.setPin(1L, null))
+        assertThatThrownBy(() -> service.setPin(1L, null, BRAND))
                 .isInstanceOf(EmployeePinValidationException.class);
         verify(pinWriter, never()).setPin(any(), anyString(), anyString());
     }
@@ -99,12 +110,13 @@ class EmployeePinServiceTest {
         EmployeePinService service =
                 new EmployeePinService(employeeRepo, pinWriter, new PinHasher(wide), wide,
                         sessionRevoker);
-        when(employeeRepo.findById(1L)).thenReturn(Optional.of(activeEmployee()));
+        when(employeeRepo.findByIdAndOrganizationId(1L, BRAND))
+                .thenReturn(Optional.of(activeEmployee()));
         when(pinWriter.setPin(any(), anyString(), anyString()))
                 .thenReturn(new EmployeePinCredential());
 
         // "007" would fail the default 4-digit minimum but passes at min 3.
-        service.setPin(1L, "007");
+        service.setPin(1L, "007", BRAND);
 
         verify(pinWriter).setPin(any(), anyString(), anyString());
         // A change of PIN ends the sessions issued under the old one.
@@ -115,11 +127,12 @@ class EmployeePinServiceTest {
     @DisplayName("a leading-zero PIN is passed through verbatim, never trimmed or normalized")
     void leadingZerosPreserved() {
         EmployeePinService service = newService();
-        when(employeeRepo.findById(1L)).thenReturn(Optional.of(activeEmployee()));
+        when(employeeRepo.findByIdAndOrganizationId(1L, BRAND))
+                .thenReturn(Optional.of(activeEmployee()));
         when(pinWriter.setPin(any(), anyString(), anyString()))
                 .thenReturn(new EmployeePinCredential());
 
-        service.setPin(1L, "0421");
+        service.setPin(1L, "0421", BRAND);
 
         String expectedFingerprint = new PinHasher(new PinProperties(4, 6, "test-hmac-secret", 1000, false))
                 .fingerprint("0421");
@@ -132,10 +145,23 @@ class EmployeePinServiceTest {
     @DisplayName("setting a PIN for a missing employee raises EmployeeNotFoundException")
     void missingEmployeeRejected() {
         EmployeePinService service = newService();
-        when(employeeRepo.findById(99L)).thenReturn(Optional.empty());
+        when(employeeRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.setPin(99L, "1234"))
+        assertThatThrownBy(() -> service.setPin(99L, "1234", BRAND))
                 .isInstanceOf(EmployeeNotFoundException.class);
+        verify(pinWriter, never()).setPin(any(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("setting a PIN for another brand's employee is answered as missing")
+    void setPinOutsideBrandIsMissing() {
+        EmployeePinService service = newService();
+
+        assertThatThrownBy(() -> service.setPin(1L, "1234", OTHER_BRAND))
+                .isInstanceOf(EmployeeNotFoundException.class)
+                .hasMessageContaining("1");
+
+        verify(employeeRepo).findByIdAndOrganizationId(1L, OTHER_BRAND);
         verify(pinWriter, never()).setPin(any(), anyString(), anyString());
     }
 
@@ -145,9 +171,9 @@ class EmployeePinServiceTest {
         EmployeePinService service = newService();
         Employee inactive = activeEmployee();
         inactive.setActive(false);
-        when(employeeRepo.findById(1L)).thenReturn(Optional.of(inactive));
+        when(employeeRepo.findByIdAndOrganizationId(1L, BRAND)).thenReturn(Optional.of(inactive));
 
-        assertThatThrownBy(() -> service.setPin(1L, "1234"))
+        assertThatThrownBy(() -> service.setPin(1L, "1234", BRAND))
                 .isInstanceOf(EmployeePinValidationException.class)
                 .hasMessageContaining("active");
         verify(pinWriter, never()).setPin(any(), anyString(), anyString());
@@ -157,11 +183,12 @@ class EmployeePinServiceTest {
     @DisplayName("a valid PIN for an active employee is hashed and handed to the writer")
     void validPinDelegatesToWriter() {
         EmployeePinService service = newService();
-        when(employeeRepo.findById(1L)).thenReturn(Optional.of(activeEmployee()));
+        when(employeeRepo.findByIdAndOrganizationId(1L, BRAND))
+                .thenReturn(Optional.of(activeEmployee()));
         when(pinWriter.setPin(any(), anyString(), anyString()))
                 .thenReturn(new EmployeePinCredential());
 
-        service.setPin(1L, "1234");
+        service.setPin(1L, "1234", BRAND);
 
         verify(pinWriter).setPin(any(), anyString(), anyString());
     }
@@ -172,13 +199,14 @@ class EmployeePinServiceTest {
     @DisplayName("a fingerprint integrity violation becomes a friendly 400 with no secret material")
     void fingerprintConflictTranslated() {
         EmployeePinService service = newService();
-        when(employeeRepo.findById(1L)).thenReturn(Optional.of(activeEmployee()));
+        when(employeeRepo.findByIdAndOrganizationId(1L, BRAND))
+                .thenReturn(Optional.of(activeEmployee()));
         DataIntegrityViolationException conflict =
                 new DataIntegrityViolationException("generic wrapper",
                         new RuntimeException("Violation uk_epss_store_fingerprint on secret value"));
         when(pinWriter.setPin(any(), anyString(), anyString())).thenThrow(conflict);
 
-        assertThatThrownBy(() -> service.setPin(1L, "1234"))
+        assertThatThrownBy(() -> service.setPin(1L, "1234", BRAND))
                 .isInstanceOf(EmployeePinValidationException.class)
                 .hasMessageContaining("already in use")
                 // Neither the raw constraint message, the fingerprint, nor
@@ -192,12 +220,13 @@ class EmployeePinServiceTest {
     @DisplayName("an unrelated integrity violation keeps propagating unchanged")
     void unrelatedIntegrityViolationRethrown() {
         EmployeePinService service = newService();
-        when(employeeRepo.findById(1L)).thenReturn(Optional.of(activeEmployee()));
+        when(employeeRepo.findByIdAndOrganizationId(1L, BRAND))
+                .thenReturn(Optional.of(activeEmployee()));
         DataIntegrityViolationException unrelated =
                 new DataIntegrityViolationException("fk_epc_employee violated");
         when(pinWriter.setPin(any(), anyString(), anyString())).thenThrow(unrelated);
 
-        assertThatThrownBy(() -> service.setPin(1L, "1234"))
+        assertThatThrownBy(() -> service.setPin(1L, "1234", BRAND))
                 .isSameAs(unrelated);
     }
 
@@ -207,10 +236,22 @@ class EmployeePinServiceTest {
     @DisplayName("removing a PIN for a missing employee raises EmployeeNotFoundException")
     void removeMissingEmployeeRejected() {
         EmployeePinService service = newService();
-        when(employeeRepo.existsById(99L)).thenReturn(false);
+        when(employeeRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.removePin(99L))
+        assertThatThrownBy(() -> service.removePin(99L, BRAND))
                 .isInstanceOf(EmployeeNotFoundException.class);
+        verify(pinWriter, never()).removePin(any());
+    }
+
+    @Test
+    @DisplayName("removing a PIN for another brand's employee is answered as missing")
+    void removePinOutsideBrandIsMissing() {
+        EmployeePinService service = newService();
+
+        assertThatThrownBy(() -> service.removePin(1L, OTHER_BRAND))
+                .isInstanceOf(EmployeeNotFoundException.class);
+
+        verify(employeeRepo).findByIdAndOrganizationId(1L, OTHER_BRAND);
         verify(pinWriter, never()).removePin(any());
     }
 
@@ -218,9 +259,10 @@ class EmployeePinServiceTest {
     @DisplayName("removing a PIN delegates to the writer for an existing employee")
     void removeDelegatesToWriter() {
         EmployeePinService service = newService();
-        when(employeeRepo.existsById(1L)).thenReturn(true);
+        when(employeeRepo.findByIdAndOrganizationId(1L, BRAND))
+                .thenReturn(Optional.of(activeEmployee()));
 
-        service.removePin(1L);
+        service.removePin(1L, BRAND);
 
         verify(pinWriter).removePin(1L);
     }

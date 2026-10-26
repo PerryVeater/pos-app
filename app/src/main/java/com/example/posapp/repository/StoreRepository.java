@@ -68,4 +68,24 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
      * @return the number of stores referencing the organization
      */
     long countByOrganizationId(Long organizationId);
+
+    /**
+     * Resolve a store only when it belongs to the given organization. The
+     * brand is part of the predicate so another brand's store is
+     * indistinguishable from a store that does not exist.
+     * @param id the store ID
+     * @param organizationId the brand the caller may act within
+     * @return the store, or empty when it does not exist in that brand
+     */
+    Optional<Store> findByIdAndOrganizationId(Long id, Long organizationId);
+
+    /**
+     * Check whether a store with the given ID belongs to the given
+     * organization, used by delete so a foreign brand's store is reported
+     * missing rather than deleted.
+     * @param id the store ID
+     * @param organizationId the brand the caller may act within
+     * @return {@code true} when the store exists in that organization
+     */
+    boolean existsByIdAndOrganizationId(Long id, Long organizationId);
 }

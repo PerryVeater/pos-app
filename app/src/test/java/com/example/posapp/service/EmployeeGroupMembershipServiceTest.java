@@ -26,7 +26,6 @@ import com.example.posapp.entity.EmployeeGroup;
 import com.example.posapp.entity.EmployeeGroupMembership;
 import com.example.posapp.entity.Organization;
 import com.example.posapp.exception.EmployeeGroupNotFoundException;
-import com.example.posapp.exception.EmployeeGroupValidationException;
 import com.example.posapp.exception.EmployeeNotFoundException;
 import com.example.posapp.repository.EmployeeGroupMembershipRepository;
 import com.example.posapp.repository.EmployeeGroupRepository;
@@ -37,17 +36,30 @@ import com.example.posapp.repository.EmployeeRepository;
  * rules.
  * <p>
  * Repositories are mocked, so these tests exercise the service in
- * isolation: the employee and the group must exist on every operation,
- * both sides must share an organization, adding an existing pair is a
- * no-op, removing a missing pair is a no-op, and the two listing methods
- * require the aggregate to exist. Because entities cannot be assigned IDs
- * directly, tests that need distinct organization IDs stub Mockito mocks
- * for {@link Organization} rather than persisting rows. No Spring context
- * or database is required.
+ * isolation: the employee and the group must exist in the caller's brand on
+ * every operation, adding an existing pair is a no-op, removing a missing
+ * pair is a no-op, and the two listing methods require the aggregate to
+ * exist. Because the pair's organization is derived from the aggregates,
+ * the success paths stub Mockito mocks for {@link Organization} so the
+ * membership entity can resolve it. No Spring context or database is
+ * required.
+ * </p>
+ * <p>
+ * Both lookups carry the brand, so an employee or group belonging to
+ * another brand is indistinguishable from a missing one. The entity itself
+ * still refuses to hold a pair whose two sides disagree about their
+ * organization; that invariant is covered by the repository integration
+ * tests.
  * </p>
  */
 @ExtendWith(MockitoExtension.class)
 class EmployeeGroupMembershipServiceTest {
+
+    /** The caller's brand. */
+    private static final long BRAND = 1L;
+
+    /** A second brand the caller must never reach. */
+    private static final long OTHER_BRAND = 2L;
 
     @Mock
     private EmployeeRepository employeeRepo;
@@ -64,7 +76,8 @@ class EmployeeGroupMembershipServiceTest {
     /**
      * Build a mock employee whose organization ID equals the supplied
      * value. Using a Mockito mock avoids the ID assignment limitation of
-     * the JPA entities and keeps the tests focused on the service rules.
+     * the JPA entities and lets the membership entity resolve the
+     * organization it derives from the pair.
      * @param organizationId the owning organization ID to expose
      * @return the mocked employee
      */
@@ -95,28 +108,28 @@ class EmployeeGroupMembershipServiceTest {
     @Test
     @DisplayName("addMembership: saves a new membership when the pair is not already attached")
     void addMembershipSavesNewPair() {
-        Employee employee = employeeInOrg(1L);
-        EmployeeGroup group = groupInOrg(1L);
-        when(employeeRepo.findById(10L)).thenReturn(Optional.of(employee));
-        when(employeeGroupRepo.findById(20L)).thenReturn(Optional.of(group));
+        Employee employee = employeeInOrg(BRAND);
+        EmployeeGroup group = groupInOrg(BRAND);
+        when(employeeRepo.findByIdAndOrganizationId(10L, BRAND)).thenReturn(Optional.of(employee));
+        when(employeeGroupRepo.findByIdAndOrganizationId(20L, BRAND)).thenReturn(Optional.of(group));
         when(membershipRepo.findByEmployeeIdAndEmployeeGroupId(10L, 20L))
                 .thenReturn(Optional.empty());
         when(membershipRepo.saveAndFlush(any(EmployeeGroupMembership.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        EmployeeGroupMembership saved = membershipService.addMembership(10L, 20L);
+        EmployeeGroupMembership saved = membershipService.addMembership(10L, 20L, BRAND);
 
         assertThat(saved.getEmployee()).isSameAs(employee);
         assertThat(saved.getEmployeeGroup()).isSameAs(group);
-        assertThat(saved.getOrganizationId()).isEqualTo(1L);
+        assertThat(saved.getOrganizationId()).isEqualTo(BRAND);
         verify(membershipRepo).saveAndFlush(any(EmployeeGroupMembership.class));
     }
 
     @Test
     @DisplayName("addMembership: concurrent duplicate insert is caught and the winner's row is returned")
     void addMembershipReturnsWinnerOnConcurrentDuplicateInsert() {
-        Employee employee = employeeInOrg(1L);
-        EmployeeGroup group = groupInOrg(1L);
+        Employee employee = employeeInOrg(BRAND);
+        EmployeeGroup group = groupInOrg(BRAND);
         EmployeeGroupMembership winner = mock(EmployeeGroupMembership.class);
         // Discriminating exception chain: the deepest SQLException leaf
         // carries a generic PG batch message with no constraint name,
@@ -136,14 +149,14 @@ class EmployeeGroupMembershipServiceTest {
                 leaf);
         DuplicateKeyException duplicateViolation = new DuplicateKeyException(
                 "JPA saveAndFlush failed", hibernateWrapper);
-        when(employeeRepo.findById(10L)).thenReturn(Optional.of(employee));
-        when(employeeGroupRepo.findById(20L)).thenReturn(Optional.of(group));
+        when(employeeRepo.findByIdAndOrganizationId(10L, BRAND)).thenReturn(Optional.of(employee));
+        when(employeeGroupRepo.findByIdAndOrganizationId(20L, BRAND)).thenReturn(Optional.of(group));
         when(membershipRepo.findByEmployeeIdAndEmployeeGroupId(10L, 20L))
                 .thenReturn(Optional.empty(), Optional.of(winner));
         when(membershipRepo.saveAndFlush(any(EmployeeGroupMembership.class)))
                 .thenThrow(duplicateViolation);
 
-        EmployeeGroupMembership result = membershipService.addMembership(10L, 20L);
+        EmployeeGroupMembership result = membershipService.addMembership(10L, 20L, BRAND);
 
         assertThat(result).isSameAs(winner);
         verify(membershipRepo).saveAndFlush(any(EmployeeGroupMembership.class));
@@ -152,15 +165,15 @@ class EmployeeGroupMembershipServiceTest {
     @Test
     @DisplayName("addMembership: duplicate-key violation whose recovery read finds nothing rethrows the original exception")
     void addMembershipRethrowsWhenRecoveryReadFindsNoRow() {
-        Employee employee = employeeInOrg(1L);
-        EmployeeGroup group = groupInOrg(1L);
+        Employee employee = employeeInOrg(BRAND);
+        EmployeeGroup group = groupInOrg(BRAND);
         SQLException leaf = new SQLException(
                 "ERROR: duplicate key value violates unique constraint"
                         + " \"uk_employee_group_membership\"");
         DuplicateKeyException duplicateViolation = new DuplicateKeyException(
                 "Batch entry rejected", leaf);
-        when(employeeRepo.findById(10L)).thenReturn(Optional.of(employee));
-        when(employeeGroupRepo.findById(20L)).thenReturn(Optional.of(group));
+        when(employeeRepo.findByIdAndOrganizationId(10L, BRAND)).thenReturn(Optional.of(employee));
+        when(employeeGroupRepo.findByIdAndOrganizationId(20L, BRAND)).thenReturn(Optional.of(group));
         // Both the pre-check and the recovery read return empty: the
         // concurrent winner was deleted before our re-read could see
         // it, so the recovery is not possible and the original
@@ -170,41 +183,43 @@ class EmployeeGroupMembershipServiceTest {
         when(membershipRepo.saveAndFlush(any(EmployeeGroupMembership.class)))
                 .thenThrow(duplicateViolation);
 
-        assertThatThrownBy(() -> membershipService.addMembership(10L, 20L))
+        assertThatThrownBy(() -> membershipService.addMembership(10L, 20L, BRAND))
                 .isSameAs(duplicateViolation);
     }
 
     @Test
     @DisplayName("addMembership: unrelated integrity violations are rethrown so the client still sees 400")
     void addMembershipRethrowsUnrelatedIntegrityViolation() {
-        Employee employee = employeeInOrg(1L);
-        EmployeeGroup group = groupInOrg(1L);
+        Employee employee = employeeInOrg(BRAND);
+        EmployeeGroup group = groupInOrg(BRAND);
         DataIntegrityViolationException fkViolation = new DataIntegrityViolationException(
                 "update or delete on table \"employee\" violates foreign key constraint"
                         + " \"fk_egm_employee\" on table \"employee_group_membership\"");
-        when(employeeRepo.findById(10L)).thenReturn(Optional.of(employee));
-        when(employeeGroupRepo.findById(20L)).thenReturn(Optional.of(group));
+        when(employeeRepo.findByIdAndOrganizationId(10L, BRAND)).thenReturn(Optional.of(employee));
+        when(employeeGroupRepo.findByIdAndOrganizationId(20L, BRAND)).thenReturn(Optional.of(group));
         when(membershipRepo.findByEmployeeIdAndEmployeeGroupId(10L, 20L))
                 .thenReturn(Optional.empty());
         when(membershipRepo.saveAndFlush(any(EmployeeGroupMembership.class)))
                 .thenThrow(fkViolation);
 
-        assertThatThrownBy(() -> membershipService.addMembership(10L, 20L))
+        assertThatThrownBy(() -> membershipService.addMembership(10L, 20L, BRAND))
                 .isSameAs(fkViolation);
     }
 
     @Test
     @DisplayName("addMembership: existing membership is returned unchanged so PUT is idempotent")
     void addMembershipIsIdempotentForExistingPair() {
-        Employee employee = employeeInOrg(1L);
-        EmployeeGroup group = groupInOrg(1L);
+        // The existing row short-circuits the insert, so the organization is
+        // never resolved and the pair needs no owning brand.
+        Employee employee = mock(Employee.class);
+        EmployeeGroup group = mock(EmployeeGroup.class);
         EmployeeGroupMembership existing = mock(EmployeeGroupMembership.class);
-        when(employeeRepo.findById(10L)).thenReturn(Optional.of(employee));
-        when(employeeGroupRepo.findById(20L)).thenReturn(Optional.of(group));
+        when(employeeRepo.findByIdAndOrganizationId(10L, BRAND)).thenReturn(Optional.of(employee));
+        when(employeeGroupRepo.findByIdAndOrganizationId(20L, BRAND)).thenReturn(Optional.of(group));
         when(membershipRepo.findByEmployeeIdAndEmployeeGroupId(10L, 20L))
                 .thenReturn(Optional.of(existing));
 
-        EmployeeGroupMembership result = membershipService.addMembership(10L, 20L);
+        EmployeeGroupMembership result = membershipService.addMembership(10L, 20L, BRAND);
 
         assertThat(result).isSameAs(existing);
         verify(membershipRepo, never()).save(any(EmployeeGroupMembership.class));
@@ -214,9 +229,9 @@ class EmployeeGroupMembershipServiceTest {
     @Test
     @DisplayName("addMembership: missing employee throws EmployeeNotFoundException and saves nothing")
     void addMembershipMissingEmployeeThrows() {
-        when(employeeRepo.findById(99L)).thenReturn(Optional.empty());
+        when(employeeRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> membershipService.addMembership(99L, 20L))
+        assertThatThrownBy(() -> membershipService.addMembership(99L, 20L, BRAND))
                 .isInstanceOf(EmployeeNotFoundException.class)
                 .hasMessageContaining("99");
 
@@ -227,10 +242,10 @@ class EmployeeGroupMembershipServiceTest {
     @DisplayName("addMembership: missing group throws EmployeeGroupNotFoundException and saves nothing")
     void addMembershipMissingGroupThrows() {
         Employee employee = mock(Employee.class);
-        when(employeeRepo.findById(10L)).thenReturn(Optional.of(employee));
-        when(employeeGroupRepo.findById(99L)).thenReturn(Optional.empty());
+        when(employeeRepo.findByIdAndOrganizationId(10L, BRAND)).thenReturn(Optional.of(employee));
+        when(employeeGroupRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> membershipService.addMembership(10L, 99L))
+        assertThatThrownBy(() -> membershipService.addMembership(10L, 99L, BRAND))
                 .isInstanceOf(EmployeeGroupNotFoundException.class)
                 .hasMessageContaining("99");
 
@@ -238,17 +253,28 @@ class EmployeeGroupMembershipServiceTest {
     }
 
     @Test
-    @DisplayName("addMembership: cross-organization pair is rejected before anything is saved")
-    void addMembershipCrossOrganizationThrows() {
-        Employee employee = employeeInOrg(1L);
-        EmployeeGroup group = groupInOrg(2L);
-        when(employeeRepo.findById(10L)).thenReturn(Optional.of(employee));
-        when(employeeGroupRepo.findById(20L)).thenReturn(Optional.of(group));
+    @DisplayName("addMembership: an employee of another brand is answered as missing")
+    void addMembershipOutsideBrandIsMissing() {
+        assertThatThrownBy(() -> membershipService.addMembership(10L, 20L, OTHER_BRAND))
+                .isInstanceOf(EmployeeNotFoundException.class)
+                .hasMessageContaining("10");
 
-        assertThatThrownBy(() -> membershipService.addMembership(10L, 20L))
-                .isInstanceOf(EmployeeGroupValidationException.class)
-                .hasMessageContaining("same organization");
+        verify(employeeRepo).findByIdAndOrganizationId(10L, OTHER_BRAND);
+        verify(employeeGroupRepo, never()).findByIdAndOrganizationId(any(), any());
+        verify(membershipRepo, never()).saveAndFlush(any(EmployeeGroupMembership.class));
+    }
 
+    @Test
+    @DisplayName("addMembership: a group of another brand is answered as missing")
+    void addMembershipGroupOutsideBrandIsMissing() {
+        when(employeeRepo.findByIdAndOrganizationId(10L, BRAND))
+                .thenReturn(Optional.of(mock(Employee.class)));
+
+        assertThatThrownBy(() -> membershipService.addMembership(10L, 20L, BRAND))
+                .isInstanceOf(EmployeeGroupNotFoundException.class)
+                .hasMessageContaining("20");
+
+        verify(employeeGroupRepo).findByIdAndOrganizationId(20L, BRAND);
         verify(membershipRepo, never()).saveAndFlush(any(EmployeeGroupMembership.class));
     }
 
@@ -257,15 +283,15 @@ class EmployeeGroupMembershipServiceTest {
     @Test
     @DisplayName("removeMembership: deletes the existing membership row")
     void removeMembershipDeletesExisting() {
-        Employee employee = employeeInOrg(1L);
-        EmployeeGroup group = groupInOrg(1L);
         EmployeeGroupMembership existing = mock(EmployeeGroupMembership.class);
-        when(employeeRepo.findById(10L)).thenReturn(Optional.of(employee));
-        when(employeeGroupRepo.findById(20L)).thenReturn(Optional.of(group));
+        when(employeeRepo.findByIdAndOrganizationId(10L, BRAND))
+                .thenReturn(Optional.of(mock(Employee.class)));
+        when(employeeGroupRepo.findByIdAndOrganizationId(20L, BRAND))
+                .thenReturn(Optional.of(mock(EmployeeGroup.class)));
         when(membershipRepo.findByEmployeeIdAndEmployeeGroupId(10L, 20L))
                 .thenReturn(Optional.of(existing));
 
-        membershipService.removeMembership(10L, 20L);
+        membershipService.removeMembership(10L, 20L, BRAND);
 
         verify(membershipRepo).delete(existing);
     }
@@ -273,14 +299,14 @@ class EmployeeGroupMembershipServiceTest {
     @Test
     @DisplayName("removeMembership: missing pair is a no-op so DELETE is idempotent")
     void removeMembershipIsIdempotentForMissingPair() {
-        Employee employee = employeeInOrg(1L);
-        EmployeeGroup group = groupInOrg(1L);
-        when(employeeRepo.findById(10L)).thenReturn(Optional.of(employee));
-        when(employeeGroupRepo.findById(20L)).thenReturn(Optional.of(group));
+        when(employeeRepo.findByIdAndOrganizationId(10L, BRAND))
+                .thenReturn(Optional.of(mock(Employee.class)));
+        when(employeeGroupRepo.findByIdAndOrganizationId(20L, BRAND))
+                .thenReturn(Optional.of(mock(EmployeeGroup.class)));
         when(membershipRepo.findByEmployeeIdAndEmployeeGroupId(10L, 20L))
                 .thenReturn(Optional.empty());
 
-        membershipService.removeMembership(10L, 20L);
+        membershipService.removeMembership(10L, 20L, BRAND);
 
         verify(membershipRepo, never()).delete(any(EmployeeGroupMembership.class));
     }
@@ -288,9 +314,9 @@ class EmployeeGroupMembershipServiceTest {
     @Test
     @DisplayName("removeMembership: missing employee throws EmployeeNotFoundException")
     void removeMembershipMissingEmployeeThrows() {
-        when(employeeRepo.findById(99L)).thenReturn(Optional.empty());
+        when(employeeRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> membershipService.removeMembership(99L, 20L))
+        assertThatThrownBy(() -> membershipService.removeMembership(99L, 20L, BRAND))
                 .isInstanceOf(EmployeeNotFoundException.class)
                 .hasMessageContaining("99");
 
@@ -300,11 +326,11 @@ class EmployeeGroupMembershipServiceTest {
     @Test
     @DisplayName("removeMembership: missing group throws EmployeeGroupNotFoundException")
     void removeMembershipMissingGroupThrows() {
-        Employee employee = mock(Employee.class);
-        when(employeeRepo.findById(10L)).thenReturn(Optional.of(employee));
-        when(employeeGroupRepo.findById(99L)).thenReturn(Optional.empty());
+        when(employeeRepo.findByIdAndOrganizationId(10L, BRAND))
+                .thenReturn(Optional.of(mock(Employee.class)));
+        when(employeeGroupRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> membershipService.removeMembership(10L, 99L))
+        assertThatThrownBy(() -> membershipService.removeMembership(10L, 99L, BRAND))
                 .isInstanceOf(EmployeeGroupNotFoundException.class)
                 .hasMessageContaining("99");
 
@@ -312,17 +338,12 @@ class EmployeeGroupMembershipServiceTest {
     }
 
     @Test
-    @DisplayName("removeMembership: cross-organization pair is rejected before anything is deleted")
-    void removeMembershipCrossOrganizationThrows() {
-        Employee employee = employeeInOrg(1L);
-        EmployeeGroup group = groupInOrg(2L);
-        when(employeeRepo.findById(10L)).thenReturn(Optional.of(employee));
-        when(employeeGroupRepo.findById(20L)).thenReturn(Optional.of(group));
+    @DisplayName("removeMembership: another brand's pair is answered as missing and nothing is deleted")
+    void removeMembershipOutsideBrandIsMissing() {
+        assertThatThrownBy(() -> membershipService.removeMembership(10L, 20L, OTHER_BRAND))
+                .isInstanceOf(EmployeeNotFoundException.class);
 
-        assertThatThrownBy(() -> membershipService.removeMembership(10L, 20L))
-                .isInstanceOf(EmployeeGroupValidationException.class)
-                .hasMessageContaining("same organization");
-
+        verify(employeeRepo).findByIdAndOrganizationId(10L, OTHER_BRAND);
         verify(membershipRepo, never()).delete(any(EmployeeGroupMembership.class));
     }
 
@@ -331,7 +352,8 @@ class EmployeeGroupMembershipServiceTest {
     @Test
     @DisplayName("listGroupsForEmployee: returns the groups referenced by the memberships")
     void listGroupsForEmployeeReturnsAttachedGroups() {
-        when(employeeRepo.existsById(10L)).thenReturn(true);
+        when(employeeRepo.findByIdAndOrganizationId(10L, BRAND))
+                .thenReturn(Optional.of(mock(Employee.class)));
         EmployeeGroup firstGroup = new EmployeeGroup("Front of House");
         EmployeeGroup secondGroup = new EmployeeGroup("Baristas");
         EmployeeGroupMembership first = mock(EmployeeGroupMembership.class);
@@ -340,7 +362,7 @@ class EmployeeGroupMembershipServiceTest {
         when(second.getEmployeeGroup()).thenReturn(secondGroup);
         when(membershipRepo.findByEmployeeId(10L)).thenReturn(List.of(first, second));
 
-        List<EmployeeGroup> groups = membershipService.listGroupsForEmployee(10L);
+        List<EmployeeGroup> groups = membershipService.listGroupsForEmployee(10L, BRAND);
 
         assertThat(groups).containsExactly(firstGroup, secondGroup);
     }
@@ -348,18 +370,19 @@ class EmployeeGroupMembershipServiceTest {
     @Test
     @DisplayName("listGroupsForEmployee: returns an empty list when the employee has no memberships")
     void listGroupsForEmployeeEmptyReturnsEmptyList() {
-        when(employeeRepo.existsById(10L)).thenReturn(true);
+        when(employeeRepo.findByIdAndOrganizationId(10L, BRAND))
+                .thenReturn(Optional.of(mock(Employee.class)));
         when(membershipRepo.findByEmployeeId(10L)).thenReturn(List.of());
 
-        assertThat(membershipService.listGroupsForEmployee(10L)).isEmpty();
+        assertThat(membershipService.listGroupsForEmployee(10L, BRAND)).isEmpty();
     }
 
     @Test
     @DisplayName("listGroupsForEmployee: missing employee throws EmployeeNotFoundException")
     void listGroupsForEmployeeMissingThrows() {
-        when(employeeRepo.existsById(99L)).thenReturn(false);
+        when(employeeRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> membershipService.listGroupsForEmployee(99L))
+        assertThatThrownBy(() -> membershipService.listGroupsForEmployee(99L, BRAND))
                 .isInstanceOf(EmployeeNotFoundException.class)
                 .hasMessageContaining("99");
 
@@ -371,7 +394,8 @@ class EmployeeGroupMembershipServiceTest {
     @Test
     @DisplayName("listEmployeesForGroup: returns the employees referenced by the memberships")
     void listEmployeesForGroupReturnsAttachedEmployees() {
-        when(employeeGroupRepo.existsById(20L)).thenReturn(true);
+        when(employeeGroupRepo.findByIdAndOrganizationId(20L, BRAND))
+                .thenReturn(Optional.of(mock(EmployeeGroup.class)));
         Employee first = new Employee("Ada");
         Employee second = new Employee("Grace");
         EmployeeGroupMembership firstMembership = mock(EmployeeGroupMembership.class);
@@ -381,7 +405,7 @@ class EmployeeGroupMembershipServiceTest {
         when(membershipRepo.findByEmployeeGroupId(20L))
                 .thenReturn(List.of(firstMembership, secondMembership));
 
-        List<Employee> employees = membershipService.listEmployeesForGroup(20L);
+        List<Employee> employees = membershipService.listEmployeesForGroup(20L, BRAND);
 
         assertThat(employees).containsExactly(first, second);
     }
@@ -389,18 +413,19 @@ class EmployeeGroupMembershipServiceTest {
     @Test
     @DisplayName("listEmployeesForGroup: returns an empty list when the group has no members")
     void listEmployeesForGroupEmptyReturnsEmptyList() {
-        when(employeeGroupRepo.existsById(20L)).thenReturn(true);
+        when(employeeGroupRepo.findByIdAndOrganizationId(20L, BRAND))
+                .thenReturn(Optional.of(mock(EmployeeGroup.class)));
         when(membershipRepo.findByEmployeeGroupId(20L)).thenReturn(List.of());
 
-        assertThat(membershipService.listEmployeesForGroup(20L)).isEmpty();
+        assertThat(membershipService.listEmployeesForGroup(20L, BRAND)).isEmpty();
     }
 
     @Test
     @DisplayName("listEmployeesForGroup: missing group throws EmployeeGroupNotFoundException")
     void listEmployeesForGroupMissingThrows() {
-        when(employeeGroupRepo.existsById(99L)).thenReturn(false);
+        when(employeeGroupRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> membershipService.listEmployeesForGroup(99L))
+        assertThatThrownBy(() -> membershipService.listEmployeesForGroup(99L, BRAND))
                 .isInstanceOf(EmployeeGroupNotFoundException.class)
                 .hasMessageContaining("99");
 

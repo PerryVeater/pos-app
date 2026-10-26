@@ -3,6 +3,7 @@ package com.example.posapp.controller;
 import java.util.List;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.example.posapp.dto.EmployeeGroupResponse;
 import com.example.posapp.dto.EmployeeResponse;
+import com.example.posapp.security.BackOfficePrincipal;
 import com.example.posapp.service.EmployeeGroupMembershipService;
 
 /**
@@ -36,9 +38,11 @@ import com.example.posapp.service.EmployeeGroupMembershipService;
  *   <li>{@code GET /api/v1/employee-groups/{groupId}/employees} lists the
  *       group's employees.</li>
  * </ul>
- * Missing aggregates return 404 and cross-organization writes return 400
- * through the exceptions mapped by
- * {@link com.example.posapp.exception.ApiExceptionHandler}.
+ * Missing aggregates return 404 through the exceptions mapped by
+ * {@link com.example.posapp.exception.ApiExceptionHandler}. Every route is
+ * confined to the caller's brand: an employee or group belonging to another
+ * brand is reported as missing, so a membership cannot be read or written
+ * across brands.
  * </p>
  */
 @RestController
@@ -59,13 +63,15 @@ public class EmployeeGroupMembershipController {
      * that is already attached is treated as success.
      * @param employeeId the employee ID
      * @param groupId the employee group ID
+     * @param principal the authenticated caller, whose brand scopes the request
      * @return 204 No Content
      */
     @PutMapping("/api/v1/employees/{employeeId}/groups/{groupId}")
     public ResponseEntity<Void> addMembership(
             @PathVariable Long employeeId,
-            @PathVariable Long groupId) {
-        membershipService.addMembership(employeeId, groupId);
+            @PathVariable Long groupId,
+            @AuthenticationPrincipal BackOfficePrincipal principal) {
+        membershipService.addMembership(employeeId, groupId, principal.organizationId());
         return ResponseEntity.noContent().build();
     }
 
@@ -75,36 +81,46 @@ public class EmployeeGroupMembershipController {
      * employee nor the group is deleted.
      * @param employeeId the employee ID
      * @param groupId the employee group ID
+     * @param principal the authenticated caller, whose brand scopes the request
      * @return 204 No Content
      */
     @DeleteMapping("/api/v1/employees/{employeeId}/groups/{groupId}")
     public ResponseEntity<Void> removeMembership(
             @PathVariable Long employeeId,
-            @PathVariable Long groupId) {
-        membershipService.removeMembership(employeeId, groupId);
+            @PathVariable Long groupId,
+            @AuthenticationPrincipal BackOfficePrincipal principal) {
+        membershipService.removeMembership(employeeId, groupId, principal.organizationId());
         return ResponseEntity.noContent().build();
     }
 
     /**
-     * List the employee groups an employee belongs to.
+     * List the employee groups an employee belongs to, within the caller's
+     * brand.
      * @param employeeId the employee ID
+     * @param principal the authenticated caller, whose brand scopes the request
      * @return the groups attached to the employee
      */
     @GetMapping("/api/v1/employees/{employeeId}/groups")
-    public List<EmployeeGroupResponse> listGroupsForEmployee(@PathVariable Long employeeId) {
-        return membershipService.listGroupsForEmployee(employeeId).stream()
+    public List<EmployeeGroupResponse> listGroupsForEmployee(
+            @PathVariable Long employeeId,
+            @AuthenticationPrincipal BackOfficePrincipal principal) {
+        return membershipService.listGroupsForEmployee(employeeId, principal.organizationId()).stream()
                 .map(EmployeeGroupResponse::from)
                 .toList();
     }
 
     /**
-     * List the employees belonging to an employee group.
+     * List the employees belonging to an employee group, within the
+     * caller's brand.
      * @param groupId the employee group ID
+     * @param principal the authenticated caller, whose brand scopes the request
      * @return the employees attached to the group
      */
     @GetMapping("/api/v1/employee-groups/{groupId}/employees")
-    public List<EmployeeResponse> listEmployeesForGroup(@PathVariable Long groupId) {
-        return membershipService.listEmployeesForGroup(groupId).stream()
+    public List<EmployeeResponse> listEmployeesForGroup(
+            @PathVariable Long groupId,
+            @AuthenticationPrincipal BackOfficePrincipal principal) {
+        return membershipService.listEmployeesForGroup(groupId, principal.organizationId()).stream()
                 .map(EmployeeResponse::from)
                 .toList();
     }

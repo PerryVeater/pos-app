@@ -180,8 +180,9 @@ class PosOrderIntegrationTest {
         // A second store with its own employee/session in the same organization.
         Store otherStore = newStore(fx.organization, "Uptown");
         Employee otherEmployee = newEmployee(fx.organization, "Bob", "posx-bob");
-        assignmentService.assignEmployeeToStore(otherEmployee.getId(), otherStore.getId());
-        pinService.setPin(otherEmployee.getId(), "8899");
+        assignmentService.assignEmployeeToStore(
+                otherEmployee.getId(), otherStore.getId(), fx.organization.getId());
+        pinService.setPin(otherEmployee.getId(), "8899", fx.organization.getId());
         String otherToken = authenticationService
                 .authenticate(otherStore.getId(), "8899", "posx-uptown").token();
 
@@ -220,8 +221,8 @@ class PosOrderIntegrationTest {
                 new Organization("POS-ORDER " + tag + " Acme"));
         Employee employee = newEmployee(org, "Ada", tag + "-ada");
         Store store = newStore(org, "Downtown");
-        assignmentService.assignEmployeeToStore(employee.getId(), store.getId());
-        pinService.setPin(employee.getId(), "0421");
+        assignmentService.assignEmployeeToStore(employee.getId(), store.getId(), org.getId());
+        pinService.setPin(employee.getId(), "0421", org.getId());
         Long productId = menuItemRepository.save(
                 new MenuItem("Cola " + tag, "COLA-" + tag, new BigDecimal("2.50"), true)).getId();
         PosAuthenticateResponse auth =

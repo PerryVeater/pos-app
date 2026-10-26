@@ -21,11 +21,13 @@ import com.example.posapp.repository.OrganizationRepository;
  * <p>
  * Encapsulates the employee business rules: the name is required; every
  * employee must reference an existing owning {@link Organization} on both
- * create and update (moving an employee to a different organization is
- * allowed as long as the new owner exists and the employee does not still
- * belong to any employee group or store, because memberships and
- * assignments are pinned to the employee's organization through the
- * composite foreign keys added by the V14 and V15 migrations); the
+ * create and update, and that organization is the caller's brand - the
+ * lookup is scoped to the brand, so a request naming another brand's
+ * organization is answered exactly like one naming an organization that does
+ * not exist. Because the employee being updated is itself loaded within the
+ * brand, an organization change is not expressible through the back office,
+ * which also means the composite foreign keys added by the V14 and V15
+ * migrations can never be put at risk by a move; the
  * optional email must be unique within the owning organization when
  * present, while any number of employees may leave it unset. Deleting an
  * employee is guarded against attached employee group memberships and
@@ -72,15 +74,17 @@ public class EmployeeService {
      * owning organization.
      * @param employee the transient employee to save (its organization
      *        field is overwritten by the resolved organization)
-     * @param organizationId the ID of the owning organization, required
+     * @param organizationId the ID of the owning organization, required; it
+     *        must be the caller's brand
+     * @param brandId the organization the caller may act within
      * @return the saved employee
      * @throws EmployeeValidationException if the name is blank or the
      *         email is already used by another employee in the organization
      * @throws OrganizationNotFoundException if the organization ID is
-     *         missing or does not exist
+     *         missing, does not exist, or lies outside the brand
      */
-    public Employee createEmployee(Employee employee, Long organizationId) {
-        Organization organization = resolveOrganization(organizationId);
+    public Employee createEmployee(Employee employee, Long organizationId, Long brandId) {
+        Organization organization = resolveOrganization(organizationId, brandId);
         validateRequiredFields(employee);
         String normalizedEmail = normalizeEmail(employee.getEmail());
         employee.setEmail(normalizedEmail);
@@ -95,29 +99,29 @@ public class EmployeeService {
     }
 
     /**
-     * Update an existing employee, including moving it to a different
-     * organization. The email is validated against the target
-     * organization, so moving an employee into an organization that
-     * already uses its email is rejected.
+     * Update an existing employee. The email is validated against the
+     * owning organization, and both the employee and the requested
+     * organization must belong to the caller's brand.
      * @param id the employee ID
      * @param updated the replacement values
-     * @param organizationId the new owning organization ID (required; may
-     *        equal the current owner)
+     * @param organizationId the owning organization ID (required; must be
+     *        the caller's brand, and therefore the employee's current
+     *        organization)
+     * @param brandId the organization the caller may act within
      * @return the updated employee
      * @throws EmployeeNotFoundException if no employee exists with the ID
+     *         inside the brand
      * @throws OrganizationNotFoundException if the organization ID is
-     *         missing or does not exist
-     * @throws EmployeeValidationException if the name is blank, the
-     *         email conflicts with another employee in the target
-     *         organization, or the organization is changing while the
-     *         employee still has group memberships or store assignments
+     *         missing, does not exist, or lies outside the brand
+     * @throws EmployeeValidationException if the name is blank or the
+     *         email conflicts with another employee in the organization
      */
-    public Employee updateEmployee(Long id, Employee updated, Long organizationId) {
-        Organization organization = resolveOrganization(organizationId);
+    public Employee updateEmployee(Long id, Employee updated, Long organizationId, Long brandId) {
+        Organization organization = resolveOrganization(organizationId, brandId);
         validateRequiredFields(updated);
         String normalizedEmail = normalizeEmail(updated.getEmail());
         updated.setEmail(normalizedEmail);
-        return employeeRepo.findById(id)
+        return employeeRepo.findByIdAndOrganizationId(id, brandId)
                 .map(existing -> {
                     if (normalizedEmail != null
                             && employeeRepo.existsByOrganizationIdAndEmailAndIdNot(
@@ -126,7 +130,6 @@ public class EmployeeService {
                                 "Email already exists in organization: organizationId="
                                         + organizationId + ", email=" + normalizedEmail);
                     }
-                    rejectOrganizationChangeWithAttachments(existing, organizationId, id);
                     // Deactivation ends every POS session immediately: a
                     // bearer token is not a shift.
                     boolean deactivating = existing.isActive() && !updated.isActive();
@@ -144,68 +147,18 @@ public class EmployeeService {
     }
 
     /**
-     * Refuse to move an employee that still belongs to any employee group
-     * or any store into a different organization. The V14 and V15
-     * migrations pin every membership and assignment row to the employee's
-     * organization through composite foreign keys, so a silent
-     * cross-organization update would be rejected by the database with a
-     * raw {@code fk_egm_employee} or {@code fk_esa_employee} violation.
-     * Doing the check here turns that into a clean domain-level 400 and
-     * gives callers the opportunity to detach the memberships and
-     * assignments first. Keeping the employee inside its current
-     * organization (including no-op updates where the target organization
-     * equals the existing one) is always allowed, and employees without
-     * attachments can move freely. The guard is fail-safe: it
-     * short-circuits only when the current and target organization IDs are
-     * both known to be equal, so an unexpectedly unloaded organization
-     * graph (a null {@code getOrganization()} or a null {@code getId()})
-     * still runs the counts rather than silently permitting a move that
-     * the database would later reject.
-     * @param existing the persisted employee about to be updated
-     * @param targetOrganizationId the organization ID requested by the caller
-     * @param id the employee ID, used for the counts and error text
-     * @throws EmployeeValidationException if the organization is changing
-     *         and the employee still has memberships or assignments
-     */
-    private void rejectOrganizationChangeWithAttachments(Employee existing,
-                                                         Long targetOrganizationId,
-                                                         Long id) {
-        Long currentOrganizationId = existing.getOrganization() == null
-                ? null : existing.getOrganization().getId();
-        // Skip the counts only when we can prove the organization is not
-        // changing; anything else (different ID or unknown current ID)
-        // falls through so the guard still rejects the update when a
-        // membership or assignment exists.
-        if (currentOrganizationId != null && currentOrganizationId.equals(targetOrganizationId)) {
-            return;
-        }
-        if (membershipRepo.countByEmployeeId(id) > 0) {
-            throw new EmployeeValidationException(
-                    "Cannot move employee to another organization while employee group"
-                            + " memberships exist: employeeId=" + id
-                            + ", currentOrganizationId=" + currentOrganizationId
-                            + ", targetOrganizationId=" + targetOrganizationId);
-        }
-        if (assignmentRepo.countByEmployeeId(id) > 0) {
-            throw new EmployeeValidationException(
-                    "Cannot move employee to another organization while store"
-                            + " assignments exist: employeeId=" + id
-                            + ", currentOrganizationId=" + currentOrganizationId
-                            + ", targetOrganizationId=" + targetOrganizationId);
-        }
-    }
-
-    /**
      * Delete an employee by ID. Refuses to delete an employee that still
      * belongs to at least one employee group or is still assigned to at
      * least one store, so callers must remove the attachments first.
      * @param id the employee ID
+     * @param brandId the organization the caller may act within
      * @throws EmployeeNotFoundException if no employee exists with the ID
+     *         inside the brand
      * @throws EmployeeValidationException if the employee still has group
      *         memberships or store assignments
      */
-    public void deleteEmployee(Long id) {
-        if (!employeeRepo.existsById(id)) {
+    public void deleteEmployee(Long id, Long brandId) {
+        if (employeeRepo.findByIdAndOrganizationId(id, brandId).isEmpty()) {
             throw new EmployeeNotFoundException(id);
         }
         if (membershipRepo.countByEmployeeId(id) > 0) {
@@ -220,37 +173,42 @@ public class EmployeeService {
     }
 
     /**
-     * Retrieve every employee.
-     * @return the list of employees
+     * Retrieve every employee in the caller's brand.
+     * @param brandId the organization the caller may act within
+     * @return the employees of that organization
      */
-    public List<Employee> getAllEmployees() {
-        return employeeRepo.findAll();
+    public List<Employee> getAllEmployees(Long brandId) {
+        return employeeRepo.findByOrganizationId(brandId);
     }
 
     /**
-     * Retrieve an employee by ID.
+     * Retrieve an employee by ID, within the caller's brand.
      * @param id the employee ID
-     * @return the Optional containing the employee if found
+     * @param brandId the organization the caller may act within
+     * @return the Optional containing the employee if found in that brand
      * @throws IllegalArgumentException if {@code id} is null
      */
-    public Optional<Employee> getEmployeeById(Long id) {
+    public Optional<Employee> getEmployeeById(Long id, Long brandId) {
         if (id == null) {
             throw new IllegalArgumentException("ID cannot be null");
         }
-        return employeeRepo.findById(id);
+        return employeeRepo.findByIdAndOrganizationId(id, brandId);
     }
 
     /**
      * Load the referenced organization or fail with
      * {@link OrganizationNotFoundException}. A null ID is treated the same
      * way as a missing organization so callers cannot bypass the FK
-     * requirement.
+     * requirement, and an ID outside the caller's brand is treated the same
+     * way as a missing one so the endpoint reveals nothing about other
+     * brands.
      * @param organizationId the ID to resolve (may be null)
+     * @param brandId the organization the caller may act within
      * @return the persisted organization
      */
-    private Organization resolveOrganization(Long organizationId) {
-        if (organizationId == null) {
-            throw new OrganizationNotFoundException(null);
+    private Organization resolveOrganization(Long organizationId, Long brandId) {
+        if (organizationId == null || !organizationId.equals(brandId)) {
+            throw new OrganizationNotFoundException(organizationId);
         }
         return organizationRepo.findById(organizationId)
                 .orElseThrow(() -> new OrganizationNotFoundException(organizationId));
