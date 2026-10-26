@@ -1,7 +1,7 @@
 package com.example.posapp.entity;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,7 +35,7 @@ import jakarta.persistence.Version;
  *   <li>{@code id} - Unique identifier for the order.</li>
  *   <li>{@code status} - Lifecycle state of the order.</li>
  *   <li>{@code diningOption} - How the order will be consumed.</li>
- *   <li>{@code createdAt} - Timestamp when the order was created.</li>
+ *   <li>{@code createdAt} - Instant when the order was created (UTC).</li>
  *   <li>{@code store} - The owning store, always present and derived from the
  *       authenticated POS session (required).</li>
  *   <li>{@code employee} - The creating employee, always present and derived
@@ -81,11 +81,13 @@ public class Order {
     private DiningOption diningOption;
 
     /**
-     * Timestamp when the order was created. Set by the service layer at
-     * order-creation time.
+     * Instant when the order was created, stored as {@code TIMESTAMPTZ}
+     * (Flyway V24). An absolute instant rather than a wall-clock reading, so
+     * orders created at two stores in different zones remain correctly
+     * ordered. Set by the service layer at order-creation time.
      */
     @Column(nullable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     /**
      * The store the order belongs to. Required: the POS order lifecycle is the
@@ -130,9 +132,9 @@ public class Order {
      * Constructor for Order.
      * @param status the lifecycle state of the order
      * @param diningOption how the order will be consumed
-     * @param createdAt the timestamp when the order was created
+     * @param createdAt the instant when the order was created
      */
-    public Order(OrderStatus status, DiningOption diningOption, LocalDateTime createdAt) {
+    public Order(OrderStatus status, DiningOption diningOption, Instant createdAt) {
         this.status = status;
         this.diningOption = diningOption;
         this.createdAt = createdAt;
@@ -175,16 +177,16 @@ public class Order {
     public void setDiningOption(DiningOption diningOption) { this.diningOption = diningOption; }
 
     /**
-     * Get the creation timestamp of the order.
-     * @return the creation timestamp of the order
+     * Get the creation instant of the order.
+     * @return the instant when the order was created
      */
-    public LocalDateTime getCreatedAt() { return createdAt; }
+    public Instant getCreatedAt() { return createdAt; }
 
     /**
-     * Set the creation timestamp of the order.
-     * @param createdAt the creation timestamp of the order
+     * Set the creation instant of the order.
+     * @param createdAt the instant when the order was created
      */
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 
     /**
      * Get the store the order belongs to.

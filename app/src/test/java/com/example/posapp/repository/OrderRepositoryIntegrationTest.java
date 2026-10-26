@@ -1,7 +1,7 @@
 package com.example.posapp.repository;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -120,7 +120,7 @@ class OrderRepositoryIntegrationTest {
      * order must now.
      */
     private Order attributedOrder(OrderStatus status, DiningOption dining) {
-        Order order = new Order(status, dining, LocalDateTime.now());
+        Order order = new Order(status, dining, Instant.now());
         order.setStore(store);
         order.setEmployee(employee);
         return order;
@@ -128,7 +128,7 @@ class OrderRepositoryIntegrationTest {
 
 
     @Test
-    @DisplayName("context boots: Flyway records V1–V23 as successful and Hibernate validate passed")
+    @DisplayName("context boots: Flyway records V1–V24 as successful and Hibernate validate passed")
     void contextBootsWithMigratedSchema() {
         // Reaching this point proves the context started, which means Flyway
         // migrated first and ddl-auto=validate accepted the schema. Verify the
@@ -136,7 +136,7 @@ class OrderRepositoryIntegrationTest {
         List<Map<String, Object>> history = jdbcTemplate.queryForList(
                 "SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank");
 
-        assertThat(history).hasSize(23);
+        assertThat(history).hasSize(24);
         assertThat(history.get(0))
                 .containsEntry("version", "1")
                 .containsEntry("description", "create product table")
@@ -229,24 +229,31 @@ class OrderRepositoryIntegrationTest {
                 .containsEntry("version", "23")
                 .containsEntry("description", "add optimistic locking")
                 .containsEntry("success", true);
+        assertThat(history.get(23))
+                .containsEntry("version", "24")
+                .containsEntry("description", "make business timestamps instant")
+                .containsEntry("success", true);
     }
 
     @Test
-    @DisplayName("orders table matches the JPA model: id, version, status varchar(16), dining_option varchar(20), created_at timestamp, non-null store_id/employee_id")
+    @DisplayName("orders table matches the JPA model: id, version, status varchar(16), dining_option varchar(20), created_at timestamptz, non-null store_id/employee_id")
     void ordersTableMatchesJpaModel() {
         List<Map<String, Object>> columns = jdbcTemplate.queryForList(
                 "SELECT column_name, data_type, is_nullable, character_maximum_length"
                 + " FROM information_schema.columns WHERE table_name = 'orders'"
                 + " ORDER BY ordinal_position");
 
+        // V24 rebuilds created_at as TIMESTAMPTZ, which moves it to the end of
+        // the physical column list: a rename cannot restore the old position.
+        // Nothing depends on that order (JPA and every query name their columns).
         assertThat(columns)
                 .extracting(column -> column.get("column_name"))
-                .containsExactly("id", "status", "created_at", "dining_option",
-                        "store_id", "employee_id", "version");
+                .containsExactly("id", "status", "dining_option", "store_id",
+                        "employee_id", "version", "created_at");
         assertThat(columns.get(0))
                 .containsEntry("column_name", "id")
                 .containsEntry("data_type", "bigint");
-        assertThat(columns.get(6))
+        assertThat(columns.get(5))
                 .containsEntry("column_name", "version")
                 .containsEntry("data_type", "bigint")
                 .containsEntry("is_nullable", "NO");
@@ -255,22 +262,22 @@ class OrderRepositoryIntegrationTest {
                 .containsEntry("data_type", "character varying")
                 .containsEntry("character_maximum_length", 16)
                 .containsEntry("is_nullable", "NO");
-        assertThat(columns.get(2))
+        assertThat(columns.get(6))
                 .containsEntry("column_name", "created_at")
-                .containsEntry("data_type", "timestamp without time zone")
+                .containsEntry("data_type", "timestamp with time zone")
                 .containsEntry("is_nullable", "NO");
-        assertThat(columns.get(3))
+        assertThat(columns.get(2))
                 .containsEntry("column_name", "dining_option")
                 .containsEntry("data_type", "character varying")
                 .containsEntry("character_maximum_length", 20)
                 .containsEntry("is_nullable", "NO");
         // V19 makes the attribution columns required: the POS-only order model
         // always records the session's store and employee.
-        assertThat(columns.get(4))
+        assertThat(columns.get(3))
                 .containsEntry("column_name", "store_id")
                 .containsEntry("data_type", "bigint")
                 .containsEntry("is_nullable", "NO");
-        assertThat(columns.get(5))
+        assertThat(columns.get(4))
                 .containsEntry("column_name", "employee_id")
                 .containsEntry("data_type", "bigint")
                 .containsEntry("is_nullable", "NO");

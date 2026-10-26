@@ -112,7 +112,7 @@ class OrderQueryIndexIntegrationTest {
         }
 
         jdbcTemplate.execute("INSERT INTO orders (status, created_at, dining_option, store_id, employee_id)"
-                + " SELECT 'COMPLETED', TIMESTAMP '2026-01-01 00:00:00' + (g * INTERVAL '1 minute'),"
+                + " SELECT 'COMPLETED', TIMESTAMPTZ '2026-01-01 00:00:00+00' + (g * INTERVAL '1 minute'),"
                 + " 'DINE_IN',"
                 + " s.ids[1 + ((g - 1) % array_length(s.ids, 1))],"
                 + " e.ids[1 + ((g - 1) % array_length(e.ids, 1))]"

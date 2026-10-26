@@ -1,7 +1,7 @@
 package com.example.posapp.service;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -101,7 +101,7 @@ public class PaymentService {
         }
 
         Payment payment = new Payment(
-                order, amount, method, PaymentStatus.PENDING, LocalDateTime.now());
+                order, amount, method, PaymentStatus.PENDING, Instant.now());
         return paymentRepo.save(payment);
     }
 

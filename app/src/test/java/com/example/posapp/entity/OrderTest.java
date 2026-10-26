@@ -1,7 +1,7 @@
 package com.example.posapp.entity;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 class OrderTest {
 
     private static Order newOrder() {
-        return new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        return new Order(OrderStatus.PENDING, DiningOption.DINE_IN, Instant.now());
     }
 
     @Test
@@ -93,7 +93,7 @@ class OrderTest {
     @Test
     @DisplayName("diningOption: getter returns the value set in the constructor")
     void diningOptionGetterReturnsConstructorValue() {
-        Order order = new Order(OrderStatus.PENDING, DiningOption.TAKEOUT, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.TAKEOUT, Instant.now());
         assertThat(order.getDiningOption()).isEqualTo(DiningOption.TAKEOUT);
     }
 

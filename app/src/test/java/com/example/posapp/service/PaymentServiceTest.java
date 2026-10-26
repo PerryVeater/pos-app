@@ -1,7 +1,7 @@
 package com.example.posapp.service;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,7 +59,7 @@ class PaymentServiceTest {
     /** A plain order with no store wiring, for the creation path which only
      * reads the status and attaches the order to the new payment. */
     private static Order plainOrder(OrderStatus status) {
-        return new Order(status, DiningOption.DINE_IN, LocalDateTime.now());
+        return new Order(status, DiningOption.DINE_IN, Instant.now());
     }
 
     /** A payment whose owning order resolves to a store with {@link #STORE_ID},
@@ -67,10 +67,10 @@ class PaymentServiceTest {
     private Payment ownedPayment(PaymentStatus status) {
         Store store = mock(Store.class);
         when(store.getId()).thenReturn(STORE_ID);
-        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN, Instant.now());
         order.setStore(store);
         return new Payment(order, new BigDecimal("25.00"), PaymentMethod.CARD,
-                status, LocalDateTime.now());
+                status, Instant.now());
     }
 
     // --- createPayment ---

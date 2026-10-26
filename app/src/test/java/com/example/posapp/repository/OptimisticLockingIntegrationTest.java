@@ -3,7 +3,7 @@ package com.example.posapp.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -272,7 +272,7 @@ class OptimisticLockingIntegrationTest {
      */
     private Order persistedOrder() {
         Order order = new Order(OrderStatus.PENDING, DiningOption.DINE_IN,
-                LocalDateTime.of(2026, 10, 25, 12, 0));
+                Instant.parse("2026-10-25T12:00:00Z"));
         order.setStore(store);
         order.setEmployee(employee);
         order.addLine(new OrderLine(menuItem, 1, new BigDecimal("2.50")));
@@ -284,7 +284,7 @@ class OptimisticLockingIntegrationTest {
      */
     private Payment persistedPayment(Order order) {
         return paymentRepository.saveAndFlush(new Payment(order, new BigDecimal("2.50"),
-                PaymentMethod.CARD, PaymentStatus.PENDING, LocalDateTime.of(2026, 10, 25, 12, 1)));
+                PaymentMethod.CARD, PaymentStatus.PENDING, Instant.parse("2026-10-25T12:01:00Z")));
     }
 
     /**

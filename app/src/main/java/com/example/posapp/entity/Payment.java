@@ -1,7 +1,7 @@
 package com.example.posapp.entity;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -58,8 +58,12 @@ public class Payment {
     @Column(name = "status", nullable = false)
     private PaymentStatus status;
 
+    /**
+     * Instant when the payment was recorded, stored as {@code TIMESTAMPTZ}
+     * (Flyway V24) so a payment and its order are comparable across zones.
+     */
     @Column(name = "created_at", nullable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     /**
      * Default constructor for JPA.
@@ -72,10 +76,10 @@ public class Payment {
      * @param amount the payment amount
      * @param method the payment method
      * @param status the initial payment status
-     * @param createdAt the creation timestamp
+     * @param createdAt the instant when the payment was recorded
      */
     public Payment(Order order, BigDecimal amount, PaymentMethod method,
-                   PaymentStatus status, LocalDateTime createdAt) {
+                   PaymentStatus status, Instant createdAt) {
         this.order = order;
         this.amount = amount;
         this.method = method;
@@ -131,11 +135,11 @@ public class Payment {
         this.status = status;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Instant getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
     }
 }

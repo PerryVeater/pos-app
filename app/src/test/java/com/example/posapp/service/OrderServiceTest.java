@@ -1,7 +1,7 @@
 package com.example.posapp.service;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -79,7 +79,7 @@ class OrderServiceTest {
     private static Order ownedOrder(OrderStatus status) {
         Store store = mock(Store.class);
         when(store.getId()).thenReturn(2L);
-        Order order = new Order(status, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = new Order(status, DiningOption.DINE_IN, Instant.now());
         order.setStore(store);
         return order;
     }

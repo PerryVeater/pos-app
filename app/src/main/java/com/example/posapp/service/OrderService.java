@@ -1,6 +1,6 @@
 package com.example.posapp.service;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
@@ -91,7 +91,7 @@ public class OrderService {
         Order order = new Order();
         order.setStatus(OrderStatus.PENDING);
         order.setDiningOption(diningOption);
-        order.setCreatedAt(LocalDateTime.now());
+        order.setCreatedAt(Instant.now());
         order.setStore(store);
         order.setEmployee(employee);
 

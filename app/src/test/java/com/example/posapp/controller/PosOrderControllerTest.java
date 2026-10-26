@@ -1,7 +1,7 @@
 package com.example.posapp.controller;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -72,7 +72,7 @@ class PosOrderControllerTest {
         Employee employee = mock(Employee.class);
         when(employee.getId()).thenReturn(1L);
         MenuItem cola = new MenuItem("Cola", "COLA-001", new BigDecimal("2.50"), true);
-        Order order = new Order(status, DiningOption.DINE_IN, LocalDateTime.of(2026, 10, 14, 12, 0));
+        Order order = new Order(status, DiningOption.DINE_IN, Instant.parse("2026-10-14T12:00:00Z"));
         order.setStore(store);
         order.setEmployee(employee);
         order.addLine(new OrderLine(cola, 2, new BigDecimal("2.50")));
@@ -96,6 +96,7 @@ class PosOrderControllerTest {
                         .content(objectMapper.writeValueAsString(sampleRequest())))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.createdAt").value("2026-10-14T12:00:00Z"))
                 .andExpect(jsonPath("$.storeId").value(2))
                 .andExpect(jsonPath("$.employeeId").value(1))
                 .andExpect(jsonPath("$.lines.length()").value(1))

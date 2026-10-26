@@ -1,7 +1,7 @@
 package com.example.posapp.controller;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -63,7 +63,7 @@ class PosPaymentControllerTest {
         Order order = mock(Order.class);
         when(order.getId()).thenReturn(1L);
         Payment payment = new Payment(order, new BigDecimal("25.00"), PaymentMethod.CARD,
-                status, LocalDateTime.of(2026, 10, 14, 12, 0));
+                status, Instant.parse("2026-10-14T12:00:00Z"));
         payment.setId(1L);
         return payment;
     }
@@ -91,7 +91,7 @@ class PosPaymentControllerTest {
                 .andExpect(jsonPath("$.amount").value(25.00))
                 .andExpect(jsonPath("$.method").value("CARD"))
                 .andExpect(jsonPath("$.status").value("PENDING"))
-                .andExpect(jsonPath("$.createdAt").exists());
+                .andExpect(jsonPath("$.createdAt").value("2026-10-14T12:00:00Z"));
     }
 
     @Test

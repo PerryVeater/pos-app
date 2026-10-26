@@ -1,7 +1,7 @@
 package com.example.posapp.dto;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.List;
 
 import com.example.posapp.entity.DiningOption;
@@ -21,7 +21,8 @@ import com.example.posapp.entity.Order;
  * @param id the order ID
  * @param status the order status (PENDING, CONFIRMED, COMPLETED, CANCELLED)
  * @param diningOption how the order will be consumed (DINE_IN, TAKEOUT, ONLINE)
- * @param createdAt the timestamp when the order was created
+ * @param createdAt the instant when the order was created, rendered in UTC
+ *        (ISO-8601 with a {@code Z} offset)
  * @param storeId the owning store ID, derived from the authenticated session
  * @param employeeId the creating employee ID, derived from the authenticated session
  * @param lines the line items in the order
@@ -31,7 +32,7 @@ public record OrderResponse(
         Long id,
         String status,
         DiningOption diningOption,
-        LocalDateTime createdAt,
+        Instant createdAt,
         Long storeId,
         Long employeeId,
         List<OrderLineResponse> lines,

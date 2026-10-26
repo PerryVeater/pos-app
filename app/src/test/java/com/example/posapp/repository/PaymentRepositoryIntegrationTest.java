@@ -1,7 +1,7 @@
 package com.example.posapp.repository;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -107,7 +107,7 @@ class PaymentRepositoryIntegrationTest {
      * employee, as every persisted order must now.
      */
     private Order attributedOrder(OrderStatus status) {
-        Order order = new Order(status, DiningOption.DINE_IN, LocalDateTime.now());
+        Order order = new Order(status, DiningOption.DINE_IN, Instant.now());
         order.setStore(store);
         order.setEmployee(employee);
         return order;
@@ -127,7 +127,7 @@ class PaymentRepositoryIntegrationTest {
                 new BigDecimal("10.00"),
                 PaymentMethod.CARD,
                 PaymentStatus.PENDING,
-                LocalDateTime.now());
+                Instant.now());
         Payment saved = paymentRepository.save(payment);
 
         assertThat(saved.getId()).isNotNull();
@@ -157,7 +157,7 @@ class PaymentRepositoryIntegrationTest {
                 new BigDecimal("50.00"),
                 PaymentMethod.CASH,
                 PaymentStatus.COMPLETED,
-                LocalDateTime.now());
+                Instant.now());
         Payment saved = paymentRepository.save(payment);
 
         Payment reloaded = paymentRepository.findById(saved.getId()).orElseThrow();
@@ -187,7 +187,7 @@ class PaymentRepositoryIntegrationTest {
                 new BigDecimal("15.00"),
                 PaymentMethod.CARD,
                 PaymentStatus.PENDING,
-                LocalDateTime.now());
+                Instant.now());
         Payment saved = paymentRepository.save(payment);
 
         assertThat(saved.getOrder().getId()).isEqualTo(savedOrder.getId());
@@ -209,13 +209,13 @@ class PaymentRepositoryIntegrationTest {
 
         Payment cashPayment = paymentRepository.save(new Payment(
                 savedOrder, new BigDecimal("20.00"), PaymentMethod.CASH,
-                PaymentStatus.PENDING, LocalDateTime.now()));
+                PaymentStatus.PENDING, Instant.now()));
         Payment cardPayment = paymentRepository.save(new Payment(
                 savedOrder, new BigDecimal("20.00"), PaymentMethod.CARD,
-                PaymentStatus.PENDING, LocalDateTime.now()));
+                PaymentStatus.PENDING, Instant.now()));
         Payment otherPayment = paymentRepository.save(new Payment(
                 savedOrder, new BigDecimal("20.00"), PaymentMethod.OTHER,
-                PaymentStatus.PENDING, LocalDateTime.now()));
+                PaymentStatus.PENDING, Instant.now()));
 
         assertThat(cashPayment.getMethod()).isEqualTo(PaymentMethod.CASH);
         assertThat(cardPayment.getMethod()).isEqualTo(PaymentMethod.CARD);
@@ -240,16 +240,16 @@ class PaymentRepositoryIntegrationTest {
 
         Payment pending = paymentRepository.save(new Payment(
                 savedOrder, new BigDecimal("30.00"), PaymentMethod.CARD,
-                PaymentStatus.PENDING, LocalDateTime.now()));
+                PaymentStatus.PENDING, Instant.now()));
         Payment completed = paymentRepository.save(new Payment(
                 savedOrder, new BigDecimal("30.00"), PaymentMethod.CARD,
-                PaymentStatus.COMPLETED, LocalDateTime.now()));
+                PaymentStatus.COMPLETED, Instant.now()));
         Payment failed = paymentRepository.save(new Payment(
                 savedOrder, new BigDecimal("30.00"), PaymentMethod.CARD,
-                PaymentStatus.FAILED, LocalDateTime.now()));
+                PaymentStatus.FAILED, Instant.now()));
         Payment refunded = paymentRepository.save(new Payment(
                 savedOrder, new BigDecimal("30.00"), PaymentMethod.CARD,
-                PaymentStatus.REFUNDED, LocalDateTime.now()));
+                PaymentStatus.REFUNDED, Instant.now()));
 
         assertThat(pending.getStatus()).isEqualTo(PaymentStatus.PENDING);
         assertThat(completed.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
