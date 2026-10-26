@@ -123,7 +123,9 @@ public class OrderService {
      * The store is derived from the authenticated session rather than supplied
      * by the client. A nonexistent order and an order owned by a different store
      * both raise the same {@link OrderNotFoundException}, so the response never
-     * discloses that the order exists at another store.
+     * discloses that the order exists at another store. The order's lines are
+     * loaded with it, because the caller maps the result to a response outside
+     * any transaction.
      * </p>
      *
      * @param id the order ID
@@ -137,7 +139,7 @@ public class OrderService {
         if (id == null) {
             throw new IllegalArgumentException("Order id must not be null");
         }
-        Order order = orderRepo.findById(id)
+        Order order = orderRepo.findWithLinesById(id)
                 .orElseThrow(() -> new OrderNotFoundException(id));
         if (order.getStore() == null || !order.getStore().getId().equals(storeId)) {
             throw new OrderNotFoundException(id);
@@ -166,7 +168,9 @@ public class OrderService {
      * write - closing the time-of-check/time-of-use gap a separate read-then-write
      * would leave. The same generic {@link OrderNotFoundException} used by
      * {@link #getOrder} is raised for a missing or other-store order, so this
-     * never discloses that the order exists elsewhere.
+     * never discloses that the order exists elsewhere. Lines are loaded with
+     * the order for the same reason they are in {@link #getOrder}: the caller
+     * maps the transitioned order to a response.
      * </p>
      *
      * @param orderId the order to transition
@@ -179,7 +183,7 @@ public class OrderService {
      */
     @Transactional
     public Order transitionStatus(Long orderId, Long storeId, OrderStatus newStatus) {
-        Order order = orderRepo.findById(orderId)
+        Order order = orderRepo.findWithLinesById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException(orderId));
         if (order.getStore() == null || !order.getStore().getId().equals(storeId)) {
             throw new OrderNotFoundException(orderId);

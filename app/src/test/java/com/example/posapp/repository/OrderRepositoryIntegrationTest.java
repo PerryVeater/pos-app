@@ -9,6 +9,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.PersistenceUnitUtil;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -18,10 +21,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import com.example.posapp.dto.OrderResponse;
 import com.example.posapp.entity.DiningOption;
 import com.example.posapp.entity.Employee;
 import com.example.posapp.entity.Order;
@@ -81,6 +87,12 @@ class OrderRepositoryIntegrationTest {
 
     @Autowired
     private EmployeeRepository employeeRepository;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     /**
      * A persisted store/employee pair created before every test so that orders
@@ -447,7 +459,7 @@ class OrderRepositoryIntegrationTest {
         assertThat(saved.getId()).isNotNull();
 
         // Read: identity, status, lines, and captured prices survive the round-trip
-        Optional<Order> loaded = orderRepository.findById(saved.getId());
+        Optional<Order> loaded = orderRepository.findWithLinesById(saved.getId());
         assertThat(loaded).isPresent();
         assertThat(loaded.get().getStatus()).isEqualTo(OrderStatus.PENDING);
         assertThat(loaded.get().getDiningOption()).isEqualTo(DiningOption.DINE_IN);
@@ -546,7 +558,7 @@ class OrderRepositoryIntegrationTest {
         assertThat(saved.getTotal()).hasScaleOf(2);
 
         // Reload from database and verify total is still correct
-        Order reloaded = orderRepository.findById(saved.getId()).orElseThrow();
+        Order reloaded = orderRepository.findWithLinesById(saved.getId()).orElseThrow();
         assertThat(reloaded.getTotal()).isEqualByComparingTo("15.50");
         assertThat(reloaded.getLines()).hasSize(2);
 
@@ -627,6 +639,58 @@ class OrderRepositoryIntegrationTest {
 
         // Cleanup
         orderRepository.deleteById(order.getId());
+        productRepository.deleteById(cola.getId());
+    }
+
+    @Test
+    @DisplayName("lines are lazy: findById leaves them unloaded, findWithLinesById initializes them")
+    void linesAreLoadedOnlyWhenTheQueryAsks() {
+        MenuItem cola = productRepository.save(
+                new MenuItem("Lazy Cola", "INT-ORD-LAZY", new BigDecimal("2.50"), true));
+        Order order = attributedOrder(OrderStatus.PENDING, DiningOption.DINE_IN);
+        order.addLine(new OrderLine(cola, 1, new BigDecimal("2.50")));
+        Long orderId = orderRepository.save(order).getId();
+
+        PersistenceUnitUtil unitUtil = entityManagerFactory.getPersistenceUnitUtil();
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            Order plain = orderRepository.findById(orderId).orElseThrow();
+            assertThat(unitUtil.isLoaded(plain, "lines"))
+                    .as("a plain findById must not fetch the lines")
+                    .isFalse();
+
+            Order withLines = orderRepository.findWithLinesById(orderId).orElseThrow();
+            assertThat(unitUtil.isLoaded(withLines, "lines"))
+                    .as("the fetch-join query must return an initialized collection")
+                    .isTrue();
+            assertThat(withLines.getLines()).hasSize(1);
+        });
+
+        // Cleanup
+        orderRepository.deleteById(orderId);
+        productRepository.deleteById(cola.getId());
+    }
+
+    @Test
+    @DisplayName("OrderService.getOrder hands back an order that maps to a response outside a transaction")
+    void orderReadOutsideATransactionMapsToAResponse() {
+        MenuItem cola = productRepository.save(
+                new MenuItem("Response Cola", "INT-ORD-RESP", new BigDecimal("3.00"), true));
+        Order created = orderService.createOrder(DiningOption.TAKEOUT, List.of(
+                new OrderService.OrderLineInput(cola.getId(), 2)), store, employee);
+
+        // No transaction is open here: touching an uninitialized collection would
+        // now throw LazyInitializationException, which is exactly the failure the
+        // EAGER mapping used to hide.
+        Order read = orderService.getOrder(created.getId(), store.getId());
+        OrderResponse response = OrderResponse.from(read);
+
+        assertThat(response.id()).isEqualTo(created.getId());
+        assertThat(response.createdAt()).isNotNull();
+        assertThat(response.lines()).hasSize(1);
+        assertThat(response.total()).isEqualByComparingTo("6.00");
+
+        // Cleanup
+        orderRepository.deleteById(created.getId());
         productRepository.deleteById(cola.getId());
     }
 }

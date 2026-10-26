@@ -115,12 +115,18 @@ public class Order {
     private Employee employee;
 
     /**
-     * Line items belonging to this order. Loaded eagerly so the lines are
-     * available when mapping responses outside a transaction. Cascade
-     * {@code ALL} with orphan removal means saving an order persists its
-     * lines, and removing a line from the list deletes it.
+     * Line items belonging to this order. Lazy (the JPA default, stated here so
+     * it stays deliberate): a fetch join on a collection multiplies the rows
+     * Hibernate reads, so it is worth it for one order and not for a list of
+     * them. The queries that feed a response ask for the lines explicitly
+     * ({@code OrderRepository#findWithLinesById}); the paths that only check
+     * ownership or status - such as creating a payment against an order - pay
+     * nothing for them. Cascade {@code ALL} with orphan removal means
+     * saving an order persists its lines, and removing a line from the list
+     * deletes it.
      */
-    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true,
+            fetch = FetchType.LAZY)
     private List<OrderLine> lines = new ArrayList<>();
 
     /**

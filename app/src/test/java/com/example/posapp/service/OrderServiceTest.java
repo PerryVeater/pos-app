@@ -340,7 +340,7 @@ class OrderServiceTest {
     @DisplayName("getOrder: returns the order when it belongs to the session store")
     void getOrderSameStoreReturns() {
         Order order = ownedOrder(OrderStatus.PENDING);
-        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.findWithLinesById(1L)).thenReturn(Optional.of(order));
 
         assertThat(orderService.getOrder(1L, 2L)).isSameAs(order);
     }
@@ -348,7 +348,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("getOrder: a nonexistent order is not found")
     void getOrderMissingThrowsNotFound() {
-        when(orderRepo.findById(99L)).thenReturn(Optional.empty());
+        when(orderRepo.findWithLinesById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> orderService.getOrder(99L, 2L))
                 .isInstanceOf(OrderNotFoundException.class)
@@ -359,7 +359,7 @@ class OrderServiceTest {
     @DisplayName("getOrder: a cross-store order is indistinguishable from missing")
     void getOrderCrossStoreThrowsNotFound() {
         Order order = ownedOrder(OrderStatus.PENDING);
-        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.findWithLinesById(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.getOrder(1L, 999L))
                 .isInstanceOf(OrderNotFoundException.class)
@@ -379,7 +379,7 @@ class OrderServiceTest {
     @DisplayName("transitionStatus: PENDING → CONFIRMED is allowed")
     void transitionStatusPendingToConfirmed() {
         Order order = ownedOrder(OrderStatus.PENDING);
-        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.findWithLinesById(1L)).thenReturn(Optional.of(order));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Order result = orderService.transitionStatus(1L, 2L, OrderStatus.CONFIRMED);
@@ -392,7 +392,7 @@ class OrderServiceTest {
     @DisplayName("transitionStatus: PENDING → CANCELLED is allowed")
     void transitionStatusPendingToCancelled() {
         Order order = ownedOrder(OrderStatus.PENDING);
-        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.findWithLinesById(1L)).thenReturn(Optional.of(order));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Order result = orderService.transitionStatus(1L, 2L, OrderStatus.CANCELLED);
@@ -405,7 +405,7 @@ class OrderServiceTest {
     @DisplayName("transitionStatus: CONFIRMED → COMPLETED is allowed")
     void transitionStatusConfirmedToCompleted() {
         Order order = ownedOrder(OrderStatus.CONFIRMED);
-        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.findWithLinesById(1L)).thenReturn(Optional.of(order));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Order result = orderService.transitionStatus(1L, 2L, OrderStatus.COMPLETED);
@@ -418,7 +418,7 @@ class OrderServiceTest {
     @DisplayName("transitionStatus: CONFIRMED → CANCELLED is allowed")
     void transitionStatusConfirmedToCancelled() {
         Order order = ownedOrder(OrderStatus.CONFIRMED);
-        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.findWithLinesById(1L)).thenReturn(Optional.of(order));
         when(orderRepo.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
         Order result = orderService.transitionStatus(1L, 2L, OrderStatus.CANCELLED);
@@ -433,7 +433,7 @@ class OrderServiceTest {
     @DisplayName("transitionStatus: PENDING → COMPLETED is rejected")
     void transitionStatusPendingToCompletedRejected() {
         Order order = ownedOrder(OrderStatus.PENDING);
-        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.findWithLinesById(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.transitionStatus(1L, 2L, OrderStatus.COMPLETED))
                 .isInstanceOf(OrderValidationException.class)
@@ -446,7 +446,7 @@ class OrderServiceTest {
     @DisplayName("transitionStatus: PENDING → PENDING is rejected")
     void transitionStatusPendingToPendingRejected() {
         Order order = ownedOrder(OrderStatus.PENDING);
-        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.findWithLinesById(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.transitionStatus(1L, 2L, OrderStatus.PENDING))
                 .isInstanceOf(OrderValidationException.class)
@@ -459,7 +459,7 @@ class OrderServiceTest {
     @DisplayName("transitionStatus: CONFIRMED → PENDING is rejected")
     void transitionStatusConfirmedToPendingRejected() {
         Order order = ownedOrder(OrderStatus.CONFIRMED);
-        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.findWithLinesById(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.transitionStatus(1L, 2L, OrderStatus.PENDING))
                 .isInstanceOf(OrderValidationException.class)
@@ -472,7 +472,7 @@ class OrderServiceTest {
     @DisplayName("transitionStatus: COMPLETED → anything is rejected")
     void transitionStatusCompletedToAnythingRejected() {
         Order order = ownedOrder(OrderStatus.COMPLETED);
-        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.findWithLinesById(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.transitionStatus(1L, 2L, OrderStatus.CANCELLED))
                 .isInstanceOf(OrderValidationException.class)
@@ -485,7 +485,7 @@ class OrderServiceTest {
     @DisplayName("transitionStatus: CANCELLED → anything is rejected")
     void transitionStatusCancelledToAnythingRejected() {
         Order order = ownedOrder(OrderStatus.CANCELLED);
-        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.findWithLinesById(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.transitionStatus(1L, 2L, OrderStatus.PENDING))
                 .isInstanceOf(OrderValidationException.class)
@@ -497,7 +497,7 @@ class OrderServiceTest {
     @Test
     @DisplayName("transitionStatus: nonexistent order throws OrderNotFoundException")
     void transitionStatusNonexistentOrderThrowsNotFound() {
-        when(orderRepo.findById(99L)).thenReturn(Optional.empty());
+        when(orderRepo.findWithLinesById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> orderService.transitionStatus(99L, 2L, OrderStatus.CONFIRMED))
                 .isInstanceOf(OrderNotFoundException.class)
@@ -510,7 +510,7 @@ class OrderServiceTest {
     @DisplayName("transitionStatus: cross-store order is not found and not saved")
     void transitionStatusCrossStoreThrowsNotFound() {
         Order order = ownedOrder(OrderStatus.PENDING);
-        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+        when(orderRepo.findWithLinesById(1L)).thenReturn(Optional.of(order));
 
         assertThatThrownBy(() -> orderService.transitionStatus(1L, 999L, OrderStatus.CONFIRMED))
                 .isInstanceOf(OrderNotFoundException.class)
