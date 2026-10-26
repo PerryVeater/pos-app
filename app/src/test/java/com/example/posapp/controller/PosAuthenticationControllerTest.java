@@ -18,6 +18,7 @@ import java.time.Instant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -40,6 +41,7 @@ import jakarta.servlet.http.HttpServletRequest;
  * service unit tests and the integration suite instead.
  */
 @WebMvcTest(PosAuthenticationController.class)
+@AutoConfigureMockMvc(addFilters = false)
 class PosAuthenticationControllerTest {
 
     @Autowired

@@ -73,7 +73,7 @@ class EmployeeRepositoryIntegrationTest {
     // --- schema metadata matches the JPA model ---
 
     @Test
-    @DisplayName("employee table matches the JPA model: organization, name, email, active")
+    @DisplayName("employee table matches the JPA model: organization, name, email, active, identity link")
     void employeeTableMatchesJpaModel() {
         List<Map<String, Object>> columns = jdbcTemplate.queryForList(
                 "SELECT column_name, data_type, is_nullable"
@@ -82,11 +82,11 @@ class EmployeeRepositoryIntegrationTest {
 
         assertThat(columns)
                 .extracting(column -> column.get("column_name"))
-                .containsExactly("id", "organization_id", "name", "email", "active");
+                .containsExactly("id", "organization_id", "name", "email", "active", "idp_subject");
         assertThat(columns)
                 .filteredOn(column -> "YES".equals(column.get("is_nullable")))
                 .extracting(column -> column.get("column_name"))
-                .containsExactly("email");
+                .containsExactly("email", "idp_subject");
         assertThat(columns.get(1))
                 .containsEntry("column_name", "organization_id")
                 .containsEntry("data_type", "bigint")
@@ -116,7 +116,8 @@ class EmployeeRepositoryIntegrationTest {
                 .extracting(row -> row.get("constraint_name") + ":" + row.get("constraint_type"))
                 .contains(
                         "fk_employee_organization:FOREIGN KEY",
-                        "uk_employee_organization_email:UNIQUE");
+                        "uk_employee_organization_email:UNIQUE",
+                        "uk_employee_idp_subject:UNIQUE");
         assertThat(constraints)
                 .extracting(row -> row.get("constraint_type"))
                 .contains("PRIMARY KEY");
@@ -153,12 +154,29 @@ class EmployeeRepositoryIntegrationTest {
     }
 
     @Test
-    @DisplayName("explicit index covers the organization_id lookup column")
+    @DisplayName("uk_employee_idp_subject covers idp_subject alone, with no organization in the key")
+    void uniqueConstraintCoversIdentitySubjectAlone() {
+        List<String> uniqueColumns = jdbcTemplate.queryForList(
+                "SELECT column_name FROM information_schema.key_column_usage"
+                + " WHERE constraint_name = 'uk_employee_idp_subject'"
+                + " ORDER BY ordinal_position",
+                String.class);
+
+        // Not scoped to the organization on purpose: a provider subject
+        // identifies exactly one person, so two brands must not be able to
+        // link the same account - that would make the brand it resolves to
+        // depend on which row the lookup happened to find.
+        assertThat(uniqueColumns).containsExactly("idp_subject");
+    }
+
+    @Test
+    @DisplayName("explicit index covers the organization_id lookup column, and the unique constraint indexes the subject")
     void explicitIndexesCoverLookupColumns() {
         List<String> indexes = jdbcTemplate.queryForList(
                 "SELECT indexname FROM pg_indexes WHERE tablename = 'employee'", String.class);
 
-        assertThat(indexes).contains("idx_employee_organization_id");
+        assertThat(indexes)
+                .contains("idx_employee_organization_id", "uk_employee_idp_subject");
     }
 
     // --- database-level enforcement ---
@@ -229,6 +247,44 @@ class EmployeeRepositoryIntegrationTest {
 
         assertThat(first.getEmail()).isNull();
         assertThat(second.getEmail()).isNull();
+        assertThat(second.getId()).isNotEqualTo(first.getId());
+
+        // Cleanup
+        employeeRepository.deleteAll(List.of(first, second));
+        organizationRepository.deleteById(owner.getId());
+    }
+
+    @Test
+    @DisplayName("an identity subject links at most one employee, across all organizations")
+    void identitySubjectIsGloballyUnique() {
+        Organization acme = organizationRepository.save(org("INT-EMP-IDP Acme"));
+        Organization globex = organizationRepository.save(org("INT-EMP-IDP Globex"));
+        Employee linked = employee(acme, "INT-EMP-IDP Acme Admin");
+        linked.setIdpSubject("11111111-1111-4111-8111-111111111111");
+        employeeRepository.saveAndFlush(linked);
+
+        Employee rival = employee(globex, "INT-EMP-IDP Globex Admin");
+        rival.setIdpSubject("11111111-1111-4111-8111-111111111111");
+
+        assertThatThrownBy(() -> employeeRepository.saveAndFlush(rival))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("uk_employee_idp_subject");
+
+        // Cleanup
+        employeeRepository.deleteById(linked.getId());
+        organizationRepository.deleteById(acme.getId());
+        organizationRepository.deleteById(globex.getId());
+    }
+
+    @Test
+    @DisplayName("employees without an identity link are allowed: POS-only staff need no account")
+    void multipleEmployeesWithoutIdentityLinkAreAllowed() {
+        Organization owner = organizationRepository.save(org("INT-EMP-NOIDP Acme"));
+        Employee first = employeeRepository.save(employee(owner, "INT-EMP-NOIDP First"));
+        Employee second = employeeRepository.save(employee(owner, "INT-EMP-NOIDP Second"));
+
+        assertThat(first.getIdpSubject()).isNull();
+        assertThat(second.getIdpSubject()).isNull();
         assertThat(second.getId()).isNotEqualTo(first.getId());
 
         // Cleanup
@@ -346,6 +402,28 @@ class EmployeeRepositoryIntegrationTest {
         employeeRepository.deleteAll(List.of(first, second, third));
         organizationRepository.deleteById(acme.getId());
         organizationRepository.deleteById(globex.getId());
+    }
+
+    @Test
+    @DisplayName("findByIdpSubject binds to the identity column: the linked employee is found, an unknown subject is not")
+    void findByIdpSubjectResolvesTheLinkedEmployee() {
+        Organization owner = organizationRepository.save(org("INT-EMP-IDPLOOK Acme"));
+        Employee linked = employee(owner, "INT-EMP-IDPLOOK Admin");
+        linked.setIdpSubject("11111111-1111-4111-8111-111111111111");
+        employeeRepository.saveAndFlush(linked);
+        Employee barista = employeeRepository.save(employee(owner, "INT-EMP-IDPLOOK Barista"));
+
+        assertThat(employeeRepository.findByIdpSubject("11111111-1111-4111-8111-111111111111"))
+                .hasValueSatisfying(found -> {
+                    assertThat(found.getId()).isEqualTo(linked.getId());
+                    assertThat(found.getOrganization().getId()).isEqualTo(owner.getId());
+                });
+        assertThat(employeeRepository.findByIdpSubject("99999999-9999-4999-8999-999999999999"))
+                .isEmpty();
+
+        // Cleanup
+        employeeRepository.deleteAll(List.of(linked, barista));
+        organizationRepository.deleteById(owner.getId());
     }
 
     @Test

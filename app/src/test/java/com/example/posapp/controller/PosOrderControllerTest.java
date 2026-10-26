@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -51,6 +52,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * integration tests.
  */
 @WebMvcTest(PosOrderController.class)
+@AutoConfigureMockMvc(addFilters = false)
 class PosOrderControllerTest {
 
     @Autowired

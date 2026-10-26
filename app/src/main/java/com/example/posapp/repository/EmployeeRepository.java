@@ -1,5 +1,8 @@
 package com.example.posapp.repository;
 
+import java.util.Optional;
+
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.example.posapp.entity.Employee;
@@ -10,9 +13,10 @@ import com.example.posapp.entity.Employee;
  * Extends {@code JpaRepository} so the standard CRUD operations are
  * available. Adds the organization-scoped lookups used by the service
  * layer: the email uniqueness checks that back
- * {@code uk_employee_organization_email}, and the employee count used by
- * the Organization delete guard. No name-based lookup is exposed because
- * employee names are not unique.
+ * {@code uk_employee_organization_email}, the employee count used by
+ * the Organization delete guard, and the identity lookup that turns a
+ * validated token subject into an employee. No name-based lookup is exposed
+ * because employee names are not unique.
  * </p>
  */
 public interface EmployeeRepository extends JpaRepository<Employee, Long> {
@@ -47,4 +51,21 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
      * @return the number of employees referencing the organization
      */
     long countByOrganizationId(Long organizationId);
+
+    /**
+     * Resolve the employee whose back-office identity is the given OIDC
+     * subject, with the owning organization fetched in the same query.
+     * <p>
+     * This runs on every authenticated back-office request, before any
+     * controller code. The organization association is eager today, so the
+     * graph changes nothing; it is declared so the lookup states what its
+     * caller needs and keeps doing it in one query if the association is ever
+     * made lazy. The unique constraint {@code uk_employee_idp_subject} makes
+     * this a single-row lookup and supplies its index.
+     * </p>
+     * @param idpSubject the identity provider subject from the token
+     * @return the linked employee, or empty when no employee is linked
+     */
+    @EntityGraph(attributePaths = {"organization"})
+    Optional<Employee> findByIdpSubject(String idpSubject);
 }

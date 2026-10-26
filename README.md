@@ -9,7 +9,11 @@ with a Flyway-managed schema.
 - Spring Boot 3.5 on Java 17 (`app/`)
 - PostgreSQL 16 through Spring Data JPA, with the schema owned by Flyway
   (`ddl-auto=validate` — Hibernate never creates or alters tables)
+- Two separate authenticated surfaces: opaque PIN-exchanged POS sessions, and
+  back-office endpoints guarded by OIDC access tokens from a Keycloak realm
+  exported into the repository
 - Testcontainers-backed integration tests against a real PostgreSQL container
+  (and a real Keycloak container for the identity boundary)
 - A Docker image (`Dockerfile`) and `docker-compose.yml` for local development
 - GitHub Actions CI: build, test, and publish an image from `main` only
 
@@ -25,7 +29,9 @@ not; treat it as future work rather than as a description of the tree.
 ## Build and test
 
 Requires JDK 17 or later with `JAVA_HOME` set, and a running Docker daemon —
-the integration tests start PostgreSQL 16 through Testcontainers.
+the integration tests start PostgreSQL 16 through Testcontainers, and the
+back-office security tests also start Keycloak 26 with the checked-in realm.
+The first run pulls both images.
 
     cd app
     ./mvnw verify
@@ -39,14 +45,15 @@ without running anything and is not a substitute.
 
 The database schema is managed by [Flyway](https://flywaydb.org). Versioned
 migrations live in `app/src/main/resources/db/migration` (currently `V1`
-through `V24`, e.g. `V1__create_product_table.sql`,
+through `V25`, e.g. `V1__create_product_table.sql`,
 `V4__add_orders_and_order_lines.sql`, `V17__add_pos_sessions.sql`,
 `V19__make_order_attribution_non_nullable.sql`,
 `V20__add_pos_session_lifecycle_indexes.sql`,
 `V21__add_pin_secret_anchor.sql`,
 `V22__add_order_query_indexes.sql`,
 `V23__add_optimistic_locking.sql`,
-`V24__make_business_timestamps_instant.sql`)
+`V24__make_business_timestamps_instant.sql`,
+`V25__link_employees_to_identities.sql`)
 and are
 applied automatically at application startup. Each product carries a caller-supplied, unique `sku` (the stable
 identifier used by POS systems), an `active` flag (products are deactivated
@@ -62,20 +69,54 @@ data-destructive statement is acceptable — are in
 
 ## Local PostgreSQL (development)
 
-Start the database:
+Start the database and the identity provider:
 
     docker compose up -d
 
-Wait until the `pos-postgres` container reports `healthy` (`docker compose ps`),
-then start the application from `app/` with `mvnw spring-boot:run` or
-`java -jar target/posapp-1.0.0.jar`. On startup Flyway applies the versioned
-migrations and Hibernate validates the schema.
+Wait until the `pos-postgres` and `pos-keycloak` containers report `healthy`
+(`docker compose ps`), then start the application from `app/` with
+`mvnw spring-boot:run` or `java -jar target/posapp-1.0.0.jar`. On startup Flyway
+applies the versioned migrations and Hibernate validates the schema.
 
 Credentials default to the local development values (`posdb`/`posuser`/
 `pospassword` on `localhost:5432`) and can be overridden with `POSTGRES_*`
 environment variables (Compose) or `SPRING_DATASOURCE_*` environment
 variables (application). Data persists in the `pgdata` named volume:
 `docker compose down` keeps it, `docker compose down -v` deletes it.
+
+Keycloak serves the `pos` realm on `http://localhost:8180`, imported from
+`keycloak/pos-realm.json` by the container's `--import-realm` flag; no manual
+realm setup is needed. The export contains four development users (password
+`dev-only-password`) whose differences are the cases the back-office rules
+care about:
+
+| User | Linked to an employee? | Carries `brand-admin`? |
+| ---- | ---------------------- | ---------------------- |
+| `denver.admin` | yes (once linked, see below) | yes |
+| `auckland.admin` | yes (once linked) | yes |
+| `unlinked.admin` | no | yes |
+| `no-role.admin` | yes (once linked) | no |
+
+A token for scripts comes from the confidential `pos-scripts` client, which
+installs the audience mapper that addresses tokens to this API:
+
+    curl -s -X POST http://localhost:8180/realms/pos/protocol/openid-connect/token \
+      -d grant_type=password -d client_id=pos-scripts \
+      -d client_secret=dev-only-pos-scripts-secret \
+      -d username=denver.admin -d password=dev-only-password
+
+The link between an account and an employee is a database fact, not a claim in
+the token, so it has to be set before a realm user can use the back office:
+
+    docker compose exec postgres psql -U posuser -d posdb \
+      -c "UPDATE employee SET idp_subject = '11111111-1111-4111-8111-111111111111' \
+          WHERE name = 'Denver Admin';"
+
+The UUIDs in the export are fixed on purpose, so a subject identifies the same
+account on every machine. The realm lives in the container's own filesystem
+rather than in a volume: `docker compose down` discards it and the next `up`
+re-imports the export. Anything changed in the admin console is therefore
+temporary — `keycloak/pos-realm.json` is the realm's source of truth.
 
 Quick schema verification:
 
@@ -155,9 +196,50 @@ Security notes:
   identically), and retrieval/status updates verify the order's store before
   reading or writing. Payment rules are unchanged (positive amount, no payment
   for a cancelled order, the `PENDING/COMPLETED/FAILED/REFUNDED` transition
-  graph); no order-total matching or duplicate-payment restriction is added. The
-  other management endpoints (employee, store, menu) remain unauthenticated as
-  before.
+  graph); no order-total matching or duplicate-payment restriction is added.
+- The management endpoints (employees, groups, stores, menus, modifiers,
+  organizations) are no longer anonymous: they require an OIDC access token.
+  See [Back-office API (OIDC)](#back-office-api-oidc) below.
+
+## Back-office API (OIDC)
+
+Every route outside `/api/v1/pos/**` and `/health` is a back-office route and
+requires a bearer access token from the `pos` realm. The token is validated for
+signature, issuer, audience (`pos-api`) and expiry before any controller runs;
+the request only proceeds if the token's subject is linked to an active
+employee and that account carries the `brand-admin` realm role.
+
+Failures are RFC 9457 problem details, like the rest of the API:
+
+| Situation | Status | Body |
+| --------- | ------ | ---- |
+| No token, invalid signature, expired, wrong issuer or audience | `401` | `title: "Authentication required"` plus `WWW-Authenticate: Bearer` |
+| Valid token, but the subject is unlinked, the employee is inactive, or the role is missing | `403` | `title: "Access denied"` |
+
+The two refusal reasons share one body on purpose: the wire never says whether
+a subject exists. The log distinguishes them (`BackOfficeIdentityService`
+records the subject and which check failed).
+
+How the boundary is built:
+
+- **The identity↔employee link is `employee.idp_subject`** (Flyway V25),
+  nullable and globally unique. Nullable because a POS-only employee needs no
+  account; unique because one provider account must not resolve to two
+  employees. The brand scope comes from the linked employee's organization, not
+  from a token claim — see the migration header for why two sources of truth
+  are worse than one.
+- **The two credential spaces are disjoint by construction.** POS tokens are
+  opaque random strings whose SHA-256 hash is stored; no JWT decoder can accept
+  one. Management tokens are JWTs signed by the provider; the POS session lookup
+  in the database never matches one. Tests assert both directions.
+- **The decoder is built from an explicit JWK set URL** rather than discovered
+  from the issuer, so application startup makes no call to the provider and the
+  service boots during a provider outage.
+- **`brand-admin` is the coarse gate only.** It answers "may this account enter
+  the back office at all". Per-endpoint brand confinement (`organization_id`)
+  and pagination are the next step within M3; franchisee subtrees and job-role
+  permissions arrive with M4. Until the brand check lands, every back-office
+  caller can read and write every brand.
 
 Configuration (see `app/src/main/resources/application.properties`, all
 overridable via environment variables):
@@ -179,6 +261,15 @@ overridable via environment variables):
 - `pos.pin.fingerprint-reset` (default `false`) – arm for exactly one startup
   to apply a changed `pos.pin.hmac-secret`, dropping every store claim. Every
   employee must then set their PIN again. Unset it afterwards.
+- `pos.identity.issuer` (default `http://localhost:8180/realms/pos`, env
+  `OIDC_ISSUER`) – the only issuer whose tokens are accepted. Compared as an
+  exact string, so a trailing slash matters.
+- `pos.identity.jwk-set-uri` (default the realm's `.../protocol/openid-connect/certs`,
+  env `OIDC_JWK_SET_URI`) – where signing keys are fetched.
+- `pos.identity.audience` (default `pos-api`, env `OIDC_AUDIENCE`) – the
+  audience a token must carry. A genuine token that was never addressed to this
+  API is refused, which is what stops a token minted for another client from
+  being replayed here.
 
 Limitations: the rate limiter is **process-local** (in-memory) and is not
 shared across multiple application instances; a horizontally scaled
@@ -187,3 +278,15 @@ menu catalog is still global, so a POS session at one store may order any
 active menu item — per-store menu scoping, verifying the PIN again on each
 transaction, clock-in/out, and role/permission authorization are intentionally
 out of scope.
+
+Back-office specifics to know before relying on it:
+
+- The brand is resolved to the principal but **not yet enforced** per endpoint,
+  and no list endpoint is paginated: both are the remaining M3 work. Do not
+  issue accounts to franchisee-level users until that and M4 land.
+- The employee↔identity link has no HTTP surface yet; it is set directly in the
+  database (see above). The employee create/update endpoints deliberately do not
+  accept `idp_subject`, so an API caller cannot attach an account to an
+  employee.
+- `brand-admin` is a realm role in Keycloak. An account can hold it and still be
+  refused, because the employee link is what makes the role usable.

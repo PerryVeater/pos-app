@@ -23,6 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
@@ -46,6 +47,7 @@ import com.example.posapp.service.MenuItemService;
  * </p>
  */
 @WebMvcTest(MenuItemController.class)
+@AutoConfigureMockMvc(addFilters = false)
 class MenuItemControllerTest {
 
     @Autowired

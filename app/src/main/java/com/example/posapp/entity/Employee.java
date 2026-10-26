@@ -25,6 +25,8 @@ import jakarta.persistence.Table;
  *   <li>{@code email} - Optional contact email; unique within the owning
  *       organization when present.</li>
  *   <li>{@code active} - Whether the employee is currently in service.</li>
+ *   <li>{@code idpSubject} - Optional OIDC subject of the back-office identity
+ *       that acts for this employee; globally unique when present.</li>
  * </ul>
  * </p>
  * <p>
@@ -79,6 +81,22 @@ public class Employee {
      */
     @Column(nullable = false)
     private boolean active = true;
+
+    /**
+     * OIDC subject of the identity that acts for this employee in the back
+     * office, or {@code null} when the employee has no back-office account.
+     * <p>
+     * This is the only link between the identity provider and the domain
+     * (Flyway V25). The subject is globally unique through
+     * {@code uk_employee_idp_subject}, so one account can never resolve to
+     * two employees and therefore to two organizations. It is not the
+     * employee's email or login name: those change, and the subject does
+     * not. The organization a back-office request is confined to is read
+     * from this employee's {@code organization}, never from a token claim.
+     * </p>
+     */
+    @Column(name = "idp_subject", unique = true)
+    private String idpSubject;
 
     /**
      * Default constructor for Employee.
@@ -148,7 +166,24 @@ public class Employee {
     public void setActive(boolean active) { this.active = active; }
 
     /**
+     * Get the OIDC subject linked to this employee.
+     * @return the identity provider subject, or {@code null} when unlinked
+     */
+    public String getIdpSubject() { return idpSubject; }
+
+    /**
+     * Set the OIDC subject linked to this employee.
+     * @param idpSubject the identity provider subject, or {@code null} to
+     *        remove the link and with it the back-office access
+     */
+    public void setIdpSubject(String idpSubject) { this.idpSubject = idpSubject; }
+
+    /**
      * Return a string representation of the employee.
+     * <p>
+     * The identity subject is deliberately omitted: it is an authentication
+     * fact, and log lines should not accumulate a list of who can act as whom.
+     * </p>
      * @return a string representation of the employee
      */
     @Override

@@ -16,5 +16,35 @@ services:
       timeout: 3s
       retries: 10
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: pos-keycloak
+    # start-dev is the local-development mode: no TLS, no clustering, an
+    # in-memory-ish store persisted in the container. --import-realm imports
+    # every realm file in /opt/keycloak/data/import on first start, which is how
+    # the checked-in realm below becomes the actual identity configuration
+    # rather than a pile of manual console clicks.
+    command: ["start-dev", "--import-realm", "--health-enabled=true"]
+    environment:
+      # Bootstrap administrator for the Keycloak console only. Application
+      # clients never use it; they authenticate as the users in the realm.
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      # Tokens carry http://localhost:8180 as their issuer, so the provider must
+      # not rewrite hosts based on the incoming request.
+      KC_HOSTNAME_STRICT: "false"
+    ports:
+      - "${KEYCLOAK_PORT:-8180}:8080"
+    volumes:
+      # Read-only: the provider imports the realm and must never write back to
+      # the working copy. The management port (9000) is not published; the
+      # health check talks to it inside the container.
+      - ./keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      test: ["CMD", "bash", "-c", "{ printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&0; grep -q 200 <&0; } 0<>/dev/tcp/127.0.0.1/9000"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
 volumes:
   pgdata:
