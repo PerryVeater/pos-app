@@ -24,6 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -58,22 +60,26 @@ class ModifierGroupControllerTest {
     // --- GET /api/v1/modifier-groups ---
 
     @Test
-    @DisplayName("GET /api/v1/modifier-groups returns every group as a JSON array")
+    @DisplayName("GET /api/v1/modifier-groups returns one page of groups")
     void getModifierGroupsReturnsAll() throws Exception {
-        when(modifierGroupService.getAllModifierGroups()).thenReturn(List.of(
-                new ModifierGroup("Pizza toppings", 0, 3),
-                new ModifierGroup("Drink additions", 0, 2)));
+        when(modifierGroupService.getAllModifierGroups(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        new ModifierGroup("Pizza toppings", 0, 3),
+                        new ModifierGroup("Drink additions", 0, 2))));
 
         mockMvc.perform(get("/api/v1/modifier-groups"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Pizza toppings"))
-                .andExpect(jsonPath("$[0].minSelections").value(0))
-                .andExpect(jsonPath("$[0].maxSelections").value(3))
-                .andExpect(jsonPath("$[0].active").value(true))
-                .andExpect(jsonPath("$[0].modifiers", hasSize(0)))
-                .andExpect(jsonPath("$[1].name").value("Drink additions"));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Pizza toppings"))
+                .andExpect(jsonPath("$.content[0].minSelections").value(0))
+                .andExpect(jsonPath("$.content[0].maxSelections").value(3))
+                .andExpect(jsonPath("$.content[0].active").value(true))
+                .andExpect(jsonPath("$.content[0].modifiers", hasSize(0)))
+                .andExpect(jsonPath("$.content[1].name").value("Drink additions"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     // --- GET /api/v1/modifier-groups/{id} ---
@@ -84,8 +90,8 @@ class ModifierGroupControllerTest {
         ModifierGroup group = new ModifierGroup("Pizza toppings", 0, 3);
         Modifier cheese = new Modifier("Extra cheese", new BigDecimal("1.00"));
         when(modifierGroupService.getModifierGroupById(1L)).thenReturn(Optional.of(group));
-        when(modifierGroupService.listModifierAssignments(1L))
-                .thenReturn(List.of(new ModifierGroupAssignment(group, cheese, 1)));
+        when(modifierGroupService.listModifierAssignments(eq(1L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(new ModifierGroupAssignment(group, cheese, 1))));
 
         mockMvc.perform(get("/api/v1/modifier-groups/1"))
                 .andExpect(status().isOk())
@@ -208,7 +214,8 @@ class ModifierGroupControllerTest {
         updated.setActive(false);
         when(modifierGroupService.updateModifierGroup(eq(1L), any(ModifierGroup.class)))
                 .thenReturn(updated);
-        when(modifierGroupService.listModifierAssignments(1L)).thenReturn(List.of());
+        when(modifierGroupService.listModifierAssignments(eq(1L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(put("/api/v1/modifier-groups/1")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -262,29 +269,30 @@ class ModifierGroupControllerTest {
     // --- GET /api/v1/modifier-groups/{id}/modifiers ---
 
     @Test
-    @DisplayName("GET /api/v1/modifier-groups/{id}/modifiers returns assignments in display order")
+    @DisplayName("GET /api/v1/modifier-groups/{id}/modifiers returns one page of assignments")
     void listModifiersReturnsOrdered() throws Exception {
         ModifierGroup group = new ModifierGroup("Pizza toppings", 0, 3);
         Modifier cheese = new Modifier("Extra cheese", new BigDecimal("1.00"));
         Modifier pepperoni = new Modifier("Pepperoni", new BigDecimal("2.00"));
-        when(modifierGroupService.listModifierAssignments(1L)).thenReturn(List.of(
-                new ModifierGroupAssignment(group, cheese, 1),
-                new ModifierGroupAssignment(group, pepperoni, 2)));
+        when(modifierGroupService.listModifierAssignments(eq(1L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        new ModifierGroupAssignment(group, cheese, 1),
+                        new ModifierGroupAssignment(group, pepperoni, 2))));
 
         mockMvc.perform(get("/api/v1/modifier-groups/1/modifiers"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].modifierName").value("Extra cheese"))
-                .andExpect(jsonPath("$[0].priceAdjustment").value(1.00))
-                .andExpect(jsonPath("$[0].displayOrder").value(1))
-                .andExpect(jsonPath("$[1].modifierName").value("Pepperoni"))
-                .andExpect(jsonPath("$[1].displayOrder").value(2));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].modifierName").value("Extra cheese"))
+                .andExpect(jsonPath("$.content[0].priceAdjustment").value(1.00))
+                .andExpect(jsonPath("$.content[0].displayOrder").value(1))
+                .andExpect(jsonPath("$.content[1].modifierName").value("Pepperoni"))
+                .andExpect(jsonPath("$.content[1].displayOrder").value(2));
     }
 
     @Test
     @DisplayName("GET /api/v1/modifier-groups/{id}/modifiers returns 404 for a missing group")
     void listModifiersReturns404ForMissingGroup() throws Exception {
-        when(modifierGroupService.listModifierAssignments(99L))
+        when(modifierGroupService.listModifierAssignments(eq(99L), any(Pageable.class)))
                 .thenThrow(new ModifierGroupNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/modifier-groups/99/modifiers"))

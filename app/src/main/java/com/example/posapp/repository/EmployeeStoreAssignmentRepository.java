@@ -3,6 +3,8 @@ package com.example.posapp.repository;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.example.posapp.entity.EmployeeStoreAssignment;
@@ -44,20 +46,35 @@ public interface EmployeeStoreAssignmentRepository
     boolean existsByEmployeeIdAndStoreId(Long employeeId, Long storeId);
 
     /**
-     * List every assignment for the given employee, used to expose the
-     * stores the employee is assigned to.
+     * List every assignment for the given employee, unpaged.
+     * <p>
+     * The listing endpoint uses the paged overload below; this one exists for
+     * the PIN writer, which must see every store an employee is assigned to
+     * before it can recalculate that employee's store-scoped PIN claims. A
+     * partial view there would silently leave claims behind.
+     * </p>
      * @param employeeId the employee ID
      * @return the assignments (possibly empty)
      */
     List<EmployeeStoreAssignment> findByEmployeeId(Long employeeId);
 
     /**
-     * List every assignment for the given store, used to expose the
+     * Page through the assignments of the given employee, used to expose the
+     * stores the employee is assigned to.
+     * @param employeeId the employee ID
+     * @param pageable the page to serve
+     * @return the requested page of assignments
+     */
+    Page<EmployeeStoreAssignment> findByEmployeeId(Long employeeId, Pageable pageable);
+
+    /**
+     * Page through the assignments of the given store, used to expose the
      * employees assigned to the store.
      * @param storeId the store ID
-     * @return the assignments (possibly empty)
+     * @param pageable the page to serve
+     * @return the requested page of assignments
      */
-    List<EmployeeStoreAssignment> findByStoreId(Long storeId);
+    Page<EmployeeStoreAssignment> findByStoreId(Long storeId, Pageable pageable);
 
     /**
      * Count assignments referencing the given employee. Used by the

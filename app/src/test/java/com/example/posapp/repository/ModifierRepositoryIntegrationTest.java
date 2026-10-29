@@ -14,6 +14,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -42,6 +44,12 @@ import com.example.posapp.entity.ModifierGroupAssignment;
 @SpringBootTest
 @Testcontainers
 class ModifierRepositoryIntegrationTest {
+
+    /**
+     * A page large enough for every assignment the tests create, so a paged
+     * lookup can be asserted as one ordered list.
+     */
+    private static final Pageable ONE_PAGE = PageRequest.of(0, 100);
 
     /**
      * Disposable PostgreSQL 16 database; {@code @ServiceConnection} feeds its
@@ -245,10 +253,12 @@ class ModifierRepositoryIntegrationTest {
         ModifierGroupAssignment burgerAssignment = assignmentRepository.save(
                 new ModifierGroupAssignment(burger, cheese, 2));
 
-        assertThat(assignmentRepository.findByModifierGroupIdOrderByDisplayOrder(pizza.getId()))
+        assertThat(assignmentRepository.findByModifierGroupIdOrderByDisplayOrder(
+                        pizza.getId(), ONE_PAGE))
                 .extracting(assignment -> assignment.getModifier().getId())
                 .containsExactly(cheese.getId());
-        assertThat(assignmentRepository.findByModifierGroupIdOrderByDisplayOrder(burger.getId()))
+        assertThat(assignmentRepository.findByModifierGroupIdOrderByDisplayOrder(
+                        burger.getId(), ONE_PAGE))
                 .extracting(assignment -> assignment.getModifier().getId())
                 .containsExactly(cheese.getId());
         assertThat(pizzaAssignment.getDisplayOrder()).isEqualTo(1);
@@ -271,7 +281,8 @@ class ModifierRepositoryIntegrationTest {
         assignmentRepository.save(new ModifierGroupAssignment(group, third, 7));
         assignmentRepository.save(new ModifierGroupAssignment(group, first, 1));
 
-        assertThat(assignmentRepository.findByModifierGroupIdOrderByDisplayOrder(group.getId()))
+        assertThat(assignmentRepository.findByModifierGroupIdOrderByDisplayOrder(
+                        group.getId(), ONE_PAGE))
                 .extracting(assignment -> assignment.getModifier().getName())
                 .containsExactly(
                         "Integration Order A",
@@ -297,8 +308,12 @@ class ModifierRepositoryIntegrationTest {
 
         assignmentRepository.delete(pizzaAssignment);
 
-        assertThat(assignmentRepository.findByModifierGroupIdOrderByDisplayOrder(pizza.getId())).isEmpty();
-        assertThat(assignmentRepository.findByModifierGroupIdOrderByDisplayOrder(burger.getId())).hasSize(1);
+        assertThat(assignmentRepository.findByModifierGroupIdOrderByDisplayOrder(
+                        pizza.getId(), ONE_PAGE))
+                .isEmpty();
+        assertThat(assignmentRepository.findByModifierGroupIdOrderByDisplayOrder(
+                        burger.getId(), ONE_PAGE))
+                .hasSize(1);
         assertThat(modifierRepository.findById(cheese.getId())).isPresent();
 
         deleteModifierGroupCascade(pizza.getId());

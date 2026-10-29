@@ -26,6 +26,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -79,33 +81,38 @@ class EmployeeControllerTest {
     // --- GET /api/v1/employees ---
 
     @Test
-    @DisplayName("GET /api/v1/employees returns an empty list")
+    @DisplayName("GET /api/v1/employees returns an empty page")
     void listEmployeesEmpty() throws Exception {
-        when(employeeService.getAllEmployees(BRAND_ID)).thenReturn(List.of());
+        when(employeeService.getAllEmployees(eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/employees"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", hasSize(0)));
+                .andExpect(jsonPath("$.content", hasSize(0)))
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     @Test
-    @DisplayName("GET /api/v1/employees returns every employee")
+    @DisplayName("GET /api/v1/employees returns one page of employees")
     void listEmployeesReturnsAll() throws Exception {
         Employee ada = employee("Ada Lovelace");
         ada.setEmail("ada@example.com");
-        when(employeeService.getAllEmployees(BRAND_ID))
-                .thenReturn(List.of(ada, employee("Grace Hopper")));
+        when(employeeService.getAllEmployees(eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(ada, employee("Grace Hopper"))));
 
         mockMvc.perform(get("/api/v1/employees"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Ada Lovelace"))
-                .andExpect(jsonPath("$[0].email").value("ada@example.com"))
-                .andExpect(jsonPath("$[1].name").value("Grace Hopper"));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Ada Lovelace"))
+                .andExpect(jsonPath("$.content[0].email").value("ada@example.com"))
+                .andExpect(jsonPath("$.content[1].name").value("Grace Hopper"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
 
         // The listing is the caller's brand, not every employee in the database.
-        verify(employeeService).getAllEmployees(BRAND_ID);
+        verify(employeeService).getAllEmployees(eq(BRAND_ID), any(Pageable.class));
     }
 
     // --- GET /api/v1/employees/{id} ---

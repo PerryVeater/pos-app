@@ -1,8 +1,9 @@
 package com.example.posapp.service;
 
-import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.example.posapp.entity.Modifier;
@@ -88,11 +89,12 @@ public class ModifierService {
     }
 
     /**
-     * Retrieve every modifier.
-     * @return the list of modifiers
+     * Retrieve every modifier, one page at a time.
+     * @param pageable the page to serve
+     * @return the requested page of modifiers
      */
-    public List<Modifier> getAllModifiers() {
-        return modifierRepo.findAll();
+    public Page<Modifier> getAllModifiers(Pageable pageable) {
+        return modifierRepo.findAll(pageable);
     }
 
     /**

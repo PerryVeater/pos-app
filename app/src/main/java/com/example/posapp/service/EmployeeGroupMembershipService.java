@@ -1,8 +1,8 @@
 package com.example.posapp.service;
 
-import java.util.List;
-
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -186,36 +186,40 @@ public class EmployeeGroupMembershipService {
     }
 
     /**
-     * List the groups an employee belongs to, within the caller's brand.
+     * Page through the memberships of an employee, within the caller's
+     * brand. The rows are memberships rather than groups so that the page
+     * carries an exact total; the endpoint exposes the group on each row.
      * @param employeeId the employee ID
      * @param brandId the organization the caller may act within
-     * @return the groups the employee is attached to (empty when none)
+     * @param pageable the page to serve
+     * @return the requested page of memberships
      * @throws EmployeeNotFoundException if the employee does not exist in
      *         the brand
      */
-    public List<EmployeeGroup> listGroupsForEmployee(Long employeeId, Long brandId) {
+    public Page<EmployeeGroupMembership> listGroupsForEmployee(Long employeeId, Long brandId,
+                                                               Pageable pageable) {
         if (employeeRepo.findByIdAndOrganizationId(employeeId, brandId).isEmpty()) {
             throw new EmployeeNotFoundException(employeeId);
         }
-        return membershipRepo.findByEmployeeId(employeeId).stream()
-                .map(EmployeeGroupMembership::getEmployeeGroup)
-                .toList();
+        return membershipRepo.findByEmployeeId(employeeId, pageable);
     }
 
     /**
-     * List the employees belonging to a group, within the caller's brand.
+     * Page through the memberships of a group, within the caller's brand.
+     * The rows are memberships rather than employees so that the page
+     * carries an exact total; the endpoint exposes the employee on each row.
      * @param employeeGroupId the employee group ID
      * @param brandId the organization the caller may act within
-     * @return the employees attached to the group (empty when none)
+     * @param pageable the page to serve
+     * @return the requested page of memberships
      * @throws EmployeeGroupNotFoundException if the group does not exist in
      *         the brand
      */
-    public List<Employee> listEmployeesForGroup(Long employeeGroupId, Long brandId) {
+    public Page<EmployeeGroupMembership> listEmployeesForGroup(Long employeeGroupId, Long brandId,
+                                                              Pageable pageable) {
         if (employeeGroupRepo.findByIdAndOrganizationId(employeeGroupId, brandId).isEmpty()) {
             throw new EmployeeGroupNotFoundException(employeeGroupId);
         }
-        return membershipRepo.findByEmployeeGroupId(employeeGroupId).stream()
-                .map(EmployeeGroupMembership::getEmployee)
-                .toList();
+        return membershipRepo.findByEmployeeGroupId(employeeGroupId, pageable);
     }
 }

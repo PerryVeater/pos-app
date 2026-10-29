@@ -1,8 +1,9 @@
 package com.example.posapp.repository;
 
-import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -85,9 +86,10 @@ public interface EmployeeRepository extends JpaRepository<Employee, Long> {
     Optional<Employee> findByIdAndOrganizationId(Long id, Long organizationId);
 
     /**
-     * List every employee owned by the given organization.
+     * Page through the employees owned by the given organization.
      * @param organizationId the brand the caller may act within
-     * @return the employees of that organization
+     * @param pageable the page to serve
+     * @return the requested page of that organization's employees
      */
-    List<Employee> findByOrganizationId(Long organizationId);
+    Page<Employee> findByOrganizationId(Long organizationId, Pageable pageable);
 }

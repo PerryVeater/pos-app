@@ -6,6 +6,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -17,6 +18,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import com.example.posapp.entity.EmployeeGroup;
 import com.example.posapp.entity.Organization;
@@ -415,11 +420,13 @@ class EmployeeGroupServiceTest {
     @Test
     @DisplayName("getAllEmployeeGroups: asks only for the caller's brand")
     void getAllEmployeeGroupsReturnsBrandsGroups() {
-        when(employeeGroupRepo.findByOrganizationId(BRAND)).thenReturn(List.of(
-                new EmployeeGroup("Front of House"),
-                new EmployeeGroup("Back of House")));
+        when(employeeGroupRepo.findByOrganizationId(eq(BRAND), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        new EmployeeGroup("Front of House"),
+                        new EmployeeGroup("Back of House"))));
 
-        List<EmployeeGroup> groups = employeeGroupService.getAllEmployeeGroups(BRAND);
+        Page<EmployeeGroup> groups = employeeGroupService
+                .getAllEmployeeGroups(BRAND, PageRequest.of(0, 25));
 
         assertThat(groups).hasSize(2)
                 .extracting(EmployeeGroup::getName)
@@ -459,11 +466,13 @@ class EmployeeGroupServiceTest {
     void listChildGroupsReturnsChildren() {
         when(employeeGroupRepo.findByIdAndOrganizationId(1L, BRAND))
                 .thenReturn(Optional.of(new EmployeeGroup("Front of House")));
-        when(employeeGroupRepo.findByParentId(1L)).thenReturn(List.of(
-                new EmployeeGroup("Cashiers"),
-                new EmployeeGroup("Hosts")));
+        when(employeeGroupRepo.findByParentId(eq(1L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        new EmployeeGroup("Cashiers"),
+                        new EmployeeGroup("Hosts"))));
 
-        List<EmployeeGroup> children = employeeGroupService.listChildGroups(1L, BRAND);
+        Page<EmployeeGroup> children = employeeGroupService
+                .listChildGroups(1L, BRAND, PageRequest.of(0, 25));
 
         assertThat(children).hasSize(2)
                 .extracting(EmployeeGroup::getName)
@@ -475,10 +484,11 @@ class EmployeeGroupServiceTest {
     void listChildGroupsMissingThrows() {
         when(employeeGroupRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> employeeGroupService.listChildGroups(99L, BRAND))
+        assertThatThrownBy(() -> employeeGroupService.listChildGroups(99L, BRAND,
+                        PageRequest.of(0, 25)))
                 .isInstanceOf(EmployeeGroupNotFoundException.class)
                 .hasMessageContaining("99");
 
-        verify(employeeGroupRepo, never()).findByParentId(any());
+        verify(employeeGroupRepo, never()).findByParentId(any(), any());
     }
 }

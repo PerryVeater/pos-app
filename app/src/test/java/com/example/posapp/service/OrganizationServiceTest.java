@@ -6,6 +6,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -16,6 +17,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import com.example.posapp.entity.EmployeeGroup;
 import com.example.posapp.entity.Organization;
@@ -196,9 +201,11 @@ class OrganizationServiceTest {
     @DisplayName("getAllOrganizations: the back office sees its own brand only")
     void getAllOrganizationsReturnsOwnBrand() {
         Organization brand = org("Acme");
-        when(organizationRepo.findById(BRAND)).thenReturn(Optional.of(brand));
+        when(organizationRepo.findByIdIs(eq(BRAND), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(brand)));
 
-        List<Organization> all = organizationService.getAllOrganizations(BRAND);
+        Page<Organization> all = organizationService
+                .getAllOrganizations(BRAND, PageRequest.of(0, 25));
 
         assertThat(all).containsExactly(brand);
         verify(organizationRepo, never()).findAll();
@@ -207,9 +214,10 @@ class OrganizationServiceTest {
     @Test
     @DisplayName("getAllOrganizations: an unreadable brand yields an empty list rather than failing")
     void getAllOrganizationsEmptyWhenBrandVanished() {
-        when(organizationRepo.findById(BRAND)).thenReturn(Optional.empty());
+        when(organizationRepo.findByIdIs(eq(BRAND), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
-        assertThat(organizationService.getAllOrganizations(BRAND)).isEmpty();
+        assertThat(organizationService.getAllOrganizations(BRAND, PageRequest.of(0, 25))).isEmpty();
     }
 
     @Test
@@ -245,9 +253,11 @@ class OrganizationServiceTest {
         Organization organization = org("Acme");
         Store downtown = sampleStore(organization, "Downtown");
         Store airport = sampleStore(organization, "Airport");
-        when(storeRepo.findByOrganizationId(BRAND)).thenReturn(List.of(downtown, airport));
+        when(storeRepo.findByOrganizationId(eq(BRAND), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(downtown, airport)));
 
-        List<Store> result = organizationService.listStores(BRAND, BRAND);
+        Page<Store> result = organizationService
+                .listStores(BRAND, BRAND, PageRequest.of(0, 25));
 
         assertThat(result).hasSize(2)
                 .extracting(Store::getName)
@@ -257,11 +267,12 @@ class OrganizationServiceTest {
     @Test
     @DisplayName("listStores: another brand's organization is answered as not found")
     void listStoresOutsideBrandThrows() {
-        assertThatThrownBy(() -> organizationService.listStores(OTHER_BRAND, BRAND))
+        assertThatThrownBy(() -> organizationService.listStores(OTHER_BRAND, BRAND,
+                        PageRequest.of(0, 25)))
                 .isInstanceOf(OrganizationNotFoundException.class)
                 .hasMessageContaining("2");
 
-        verify(storeRepo, never()).findByOrganizationId(any());
+        verify(storeRepo, never()).findByOrganizationId(any(), any());
     }
 
     // --- listRootEmployeeGroups ---
@@ -270,11 +281,13 @@ class OrganizationServiceTest {
     @DisplayName("listRootEmployeeGroups: returns the root groups for the caller's brand")
     void listRootEmployeeGroupsReturnsRoots() {
         Organization organization = org("Acme");
-        when(employeeGroupRepo.findByOrganizationIdAndParentIsNull(BRAND)).thenReturn(List.of(
-                group(organization, "Front of House"),
-                group(organization, "Back of House")));
+        when(employeeGroupRepo.findByOrganizationIdAndParentIsNull(eq(BRAND), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        group(organization, "Front of House"),
+                        group(organization, "Back of House"))));
 
-        List<EmployeeGroup> roots = organizationService.listRootEmployeeGroups(BRAND, BRAND);
+        Page<EmployeeGroup> roots = organizationService
+                .listRootEmployeeGroups(BRAND, BRAND, PageRequest.of(0, 25));
 
         assertThat(roots).hasSize(2)
                 .extracting(EmployeeGroup::getName)
@@ -284,10 +297,11 @@ class OrganizationServiceTest {
     @Test
     @DisplayName("listRootEmployeeGroups: another brand's organization is answered as not found")
     void listRootEmployeeGroupsOutsideBrandThrows() {
-        assertThatThrownBy(() -> organizationService.listRootEmployeeGroups(OTHER_BRAND, BRAND))
+        assertThatThrownBy(() -> organizationService.listRootEmployeeGroups(OTHER_BRAND, BRAND,
+                        PageRequest.of(0, 25)))
                 .isInstanceOf(OrganizationNotFoundException.class)
                 .hasMessageContaining("2");
 
-        verify(employeeGroupRepo, never()).findByOrganizationIdAndParentIsNull(any());
+        verify(employeeGroupRepo, never()).findByOrganizationIdAndParentIsNull(any(), any());
     }
 }

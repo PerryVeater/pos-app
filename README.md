@@ -237,8 +237,9 @@ How the boundary is built:
   service boots during a provider outage.
 - **`brand-admin` is the coarse gate only.** It answers "may this account enter
   the back office at all". Brand confinement now sits underneath it - see
-  [Brand confinement](#brand-confinement). Pagination is the next step within
-  M3; franchisee subtrees and job-role permissions arrive with M4.
+  [Brand confinement](#brand-confinement) - and every list is bounded - see
+  [Pagination](#pagination). Franchisee subtrees and job-role permissions
+  arrive with M4.
 
 ### Brand confinement
 
@@ -261,6 +262,46 @@ value from the controller down to the query predicate:
   and reject cross-organization pairs, backed by composite foreign keys
   (V15/V16). The service-level checks are therefore redundant and are gone -
   the constraint lives where it cannot be bypassed.
+
+### Pagination
+
+Every collection endpoint takes `?page` and `?size` and answers with a page
+envelope. There is no endpoint that returns a whole table.
+
+```json
+{
+  "content": [ ... ],
+  "page": 0,
+  "size": 25,
+  "totalElements": 137,
+  "totalPages": 6
+}
+```
+
+- **`page` is zero-based**; a negative value is treated as the first page.
+- **`size` defaults to 25 and is capped at 100.** An oversized value is
+  *clamped*, not refused: `size=5000` serves 100 rows and reports `size: 100`.
+  Clamping keeps an unreasonable request cheap without adding a failure mode to
+  a query string; a non-positive size falls back to the default.
+- **`size` in the response is the effective size**, not the requested one, so
+  `totalPages` can be derived from the body alone. A caller who asked for 5000
+  and got `size: 100, totalPages: 6` can see exactly what happened.
+- **The envelope is ours, not Spring Data's `Page`.** A serialized `Page`
+  carries `pageable`, `sort`, `first`, `last` and `numberOfElements` - a
+  library's internal view that would change with the library.
+- **Ordering is by primary key ascending.** It is the only ordering that is
+  unique, so it is the only one that cannot drop or duplicate a row across a
+  page boundary when two rows share a sort value. Where a sub-resource needs
+  display order, the derived `OrderByDisplayOrder` clause stays in the query
+  and the page's sort is appended after it (`display_order asc, id asc`):
+  display order is the presentation, the key is the tie-break.
+- **Detail responses are not paged.** `GET /api/v1/menus/{id}` and
+  `GET /api/v1/modifier-groups/{id}` embed their children in one aggregate, so
+  they carry the full list; the corresponding `.../menu-groups` and
+  `.../modifiers` sub-resources are the paged way to read the same rows.
+
+The policy lives in one place, `PageRequests`, so a new list endpoint cannot
+accidentally serve the whole table.
 
 Configuration (see `app/src/main/resources/application.properties`, all
 overridable via environment variables):
@@ -302,9 +343,11 @@ out of scope.
 
 Back-office specifics to know before relying on it:
 
-- The brand is resolved to the principal but **not yet enforced** per endpoint,
-  and no list endpoint is paginated: both are the remaining M3 work. Do not
-  issue accounts to franchisee-level users until that and M4 land.
+- The brand is resolved to the principal and enforced on every management
+  route, and every list endpoint is paged with a capped size (see
+  [Pagination](#pagination)). Do not issue accounts to franchisee-level users
+  until M4 lands: brand scope isolates brands from each other but not
+  franchisee from franchisee.
 - The employee↔identity link has no HTTP surface yet; it is set directly in the
   database (see above). The employee create/update endpoints deliberately do not
   accept `idp_subject`, so an API caller cannot attach an account to an

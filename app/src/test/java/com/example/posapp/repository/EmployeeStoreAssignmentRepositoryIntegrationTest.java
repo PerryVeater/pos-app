@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -41,6 +43,12 @@ import com.example.posapp.entity.Store;
 @SpringBootTest
 @Testcontainers
 class EmployeeStoreAssignmentRepositoryIntegrationTest {
+
+    /**
+     * A page large enough for every assignment the tests create, so a paged
+     * lookup can be asserted as one list.
+     */
+    private static final Pageable ONE_PAGE = PageRequest.of(0, 100);
 
     /**
      * Disposable PostgreSQL 16 database; {@code @ServiceConnection} feeds
@@ -428,10 +436,10 @@ class EmployeeStoreAssignmentRepositoryIntegrationTest {
         assertThat(assignmentRepository.findByEmployeeId(first.getId()))
                 .extracting(EmployeeStoreAssignment::getId)
                 .containsExactlyInAnyOrder(firstDowntown.getId(), firstAirport.getId());
-        assertThat(assignmentRepository.findByStoreId(downtown.getId()))
+        assertThat(assignmentRepository.findByStoreId(downtown.getId(), ONE_PAGE))
                 .extracting(EmployeeStoreAssignment::getId)
                 .containsExactlyInAnyOrder(firstDowntown.getId(), secondDowntown.getId());
-        assertThat(assignmentRepository.findByStoreId(airport.getId()))
+        assertThat(assignmentRepository.findByStoreId(airport.getId(), ONE_PAGE))
                 .extracting(EmployeeStoreAssignment::getId)
                 .containsExactly(firstAirport.getId());
 

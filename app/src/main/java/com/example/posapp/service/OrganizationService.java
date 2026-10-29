@@ -1,8 +1,9 @@
 package com.example.posapp.service;
 
-import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.example.posapp.entity.EmployeeGroup;
@@ -124,14 +125,15 @@ public class OrganizationService {
     }
 
     /**
-     * Retrieve the caller's brand. The back office is scoped to one
-     * organization, so this list holds exactly one entry whenever the
-     * brand row is still readable.
+     * Retrieve the caller's brand, as a page. The back office is scoped to
+     * one organization, so the page holds at most one entry - on page 0 -
+     * whenever the brand row is still readable.
      * @param brandId the organization the caller may act within
-     * @return a single-element list, or an empty list if the brand vanished
+     * @param pageable the page to serve
+     * @return the requested page of the brand, empty beyond the first page
      */
-    public List<Organization> getAllOrganizations(Long brandId) {
-        return organizationRepo.findById(brandId).map(List::of).orElseGet(List::of);
+    public Page<Organization> getAllOrganizations(Long brandId, Pageable pageable) {
+        return organizationRepo.findByIdIs(brandId, pageable);
     }
 
     /**
@@ -152,35 +154,38 @@ public class OrganizationService {
     }
 
     /**
-     * Return the stores owned by the caller's brand.
+     * Return one page of the stores owned by the caller's brand.
      * @param organizationId the organization ID named in the path
      * @param brandId the organization the caller may act within
-     * @return the stores owned by the organization (empty when it has none)
+     * @param pageable the page to serve
+     * @return the requested page of stores owned by the organization
      * @throws OrganizationNotFoundException if the named organization is
      *         not the caller's brand
      */
-    public List<Store> listStores(Long organizationId, Long brandId) {
+    public Page<Store> listStores(Long organizationId, Long brandId, Pageable pageable) {
         if (!organizationId.equals(brandId)) {
             throw new OrganizationNotFoundException(organizationId);
         }
-        return storeRepo.findByOrganizationId(organizationId);
+        return storeRepo.findByOrganizationId(organizationId, pageable);
     }
 
     /**
-     * Return the root employee groups owned by the caller's brand, i.e. the
-     * groups that have no parent group. Child groups are reachable through
-     * {@code GET /api/v1/employee-groups/{id}/children}.
+     * Return one page of the root employee groups owned by the caller's
+     * brand, i.e. the groups that have no parent group. Child groups are
+     * reachable through {@code GET /api/v1/employee-groups/{id}/children}.
      * @param organizationId the organization ID named in the path
      * @param brandId the organization the caller may act within
-     * @return the root employee groups (empty when the brand has none)
+     * @param pageable the page to serve
+     * @return the requested page of root employee groups
      * @throws OrganizationNotFoundException if the named organization is
      *         not the caller's brand
      */
-    public List<EmployeeGroup> listRootEmployeeGroups(Long organizationId, Long brandId) {
+    public Page<EmployeeGroup> listRootEmployeeGroups(Long organizationId, Long brandId,
+                                                      Pageable pageable) {
         if (!organizationId.equals(brandId)) {
             throw new OrganizationNotFoundException(organizationId);
         }
-        return employeeGroupRepo.findByOrganizationIdAndParentIsNull(organizationId);
+        return employeeGroupRepo.findByOrganizationIdAndParentIsNull(organizationId, pageable);
     }
 
     /**

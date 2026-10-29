@@ -16,6 +16,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import com.example.posapp.entity.MenuGroup;
 import com.example.posapp.entity.MenuItem;
@@ -252,11 +256,11 @@ class MenuGroupServiceTest {
     @Test
     @DisplayName("getAllMenuGroups: returns every group in the repository")
     void getAllMenuGroupsReturnsAll() {
-        when(menuGroupRepo.findAll()).thenReturn(List.of(
+        when(menuGroupRepo.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(
                 new MenuGroup("Appetizers"),
-                new MenuGroup("Desserts")));
+                new MenuGroup("Desserts"))));
 
-        List<MenuGroup> groups = menuGroupService.getAllMenuGroups();
+        Page<MenuGroup> groups = menuGroupService.getAllMenuGroups(PageRequest.of(0, 25));
 
         assertThat(groups).hasSize(2)
                 .extracting(MenuGroup::getName)
@@ -272,15 +276,17 @@ class MenuGroupServiceTest {
         MenuItem cola = new MenuItem("Cola", "COLA-001", null, true);
         MenuItem fries = new MenuItem("Fries", "FRIES-001", null, true);
         when(menuGroupRepo.existsById(1L)).thenReturn(true);
-        when(itemAssignmentRepo.findByMenuGroupIdOrderByDisplayOrder(1L)).thenReturn(List.of(
-                new MenuItemAssignment(group, cola, 1),
-                new MenuItemAssignment(group, fries, 2)));
+        when(itemAssignmentRepo.findByMenuGroupIdOrderByDisplayOrder(any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        new MenuItemAssignment(group, cola, 1),
+                        new MenuItemAssignment(group, fries, 2))));
 
-        List<MenuItemAssignment> result = menuGroupService.listItemAssignments(1L);
+        Page<MenuItemAssignment> result = menuGroupService
+                .listItemAssignments(1L, PageRequest.of(0, 25));
 
         assertThat(result).hasSize(2);
-        assertThat(result.get(0).getMenuItem().getName()).isEqualTo("Cola");
-        assertThat(result.get(1).getMenuItem().getName()).isEqualTo("Fries");
+        assertThat(result.getContent().get(0).getMenuItem().getName()).isEqualTo("Cola");
+        assertThat(result.getContent().get(1).getMenuItem().getName()).isEqualTo("Fries");
     }
 
     @Test
@@ -288,7 +294,7 @@ class MenuGroupServiceTest {
     void listItemAssignmentsThrowsForMissingGroup() {
         when(menuGroupRepo.existsById(99L)).thenReturn(false);
 
-        assertThatThrownBy(() -> menuGroupService.listItemAssignments(99L))
+        assertThatThrownBy(() -> menuGroupService.listItemAssignments(99L, PageRequest.of(0, 25)))
                 .isInstanceOf(MenuGroupNotFoundException.class);
     }
 

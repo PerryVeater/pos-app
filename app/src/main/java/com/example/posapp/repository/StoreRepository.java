@@ -1,8 +1,9 @@
 package com.example.posapp.repository;
 
-import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.example.posapp.entity.Store;
@@ -52,13 +53,14 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
                                                          Long id);
 
     /**
-     * Find every store owned by the given organization. Insertion order is
-     * not guaranteed; the tenancy foundation does not carry a per-store
-     * display attribute yet.
+     * Page through the stores owned by the given organization, ordered by
+     * primary key so the order is the same on every request and a row cannot
+     * move between pages.
      * @param organizationId the owning organization ID
-     * @return the stores owned by the organization (possibly empty)
+     * @param pageable the page to serve
+     * @return the requested page of the organization's stores
      */
-    List<Store> findByOrganizationId(Long organizationId);
+    Page<Store> findByOrganizationId(Long organizationId, Pageable pageable);
 
     /**
      * Count stores owned by the given organization. Used by the Organization

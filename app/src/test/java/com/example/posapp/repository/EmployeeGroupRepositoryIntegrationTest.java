@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -36,6 +38,12 @@ import com.example.posapp.entity.Organization;
 @SpringBootTest
 @Testcontainers
 class EmployeeGroupRepositoryIntegrationTest {
+
+    /**
+     * A page large enough for every group the tests create, so a paged
+     * lookup can be asserted as one list.
+     */
+    private static final Pageable ONE_PAGE = PageRequest.of(0, 100);
 
     /**
      * Disposable PostgreSQL 16 database; {@code @ServiceConnection} feeds its
@@ -279,7 +287,9 @@ class EmployeeGroupRepositoryIntegrationTest {
         EmployeeGroup grandchild = employeeGroupRepository.save(
                 group(owner, "INT-EG-CHILD Grandchild", first));
 
-        List<EmployeeGroup> children = employeeGroupRepository.findByParentId(root.getId());
+        List<EmployeeGroup> children = employeeGroupRepository
+                .findByParentId(root.getId(), ONE_PAGE)
+                .getContent();
 
         assertThat(children)
                 .extracting(EmployeeGroup::getName)
@@ -303,10 +313,12 @@ class EmployeeGroupRepositoryIntegrationTest {
                 group(acme, "INT-EG-ROOT Acme Child", acmeRoot));
         EmployeeGroup globexRoot = employeeGroupRepository.save(group(globex, "INT-EG-ROOT Globex Root"));
 
-        assertThat(employeeGroupRepository.findByOrganizationIdAndParentIsNull(acme.getId()))
+        assertThat(employeeGroupRepository.findByOrganizationIdAndParentIsNull(acme.getId(),
+                        ONE_PAGE))
                 .extracting(EmployeeGroup::getName)
                 .containsExactly("INT-EG-ROOT Acme Root");
-        assertThat(employeeGroupRepository.findByOrganizationIdAndParentIsNull(globex.getId()))
+        assertThat(employeeGroupRepository.findByOrganizationIdAndParentIsNull(globex.getId(),
+                        ONE_PAGE))
                 .extracting(EmployeeGroup::getName)
                 .containsExactly("INT-EG-ROOT Globex Root");
 
@@ -355,8 +367,8 @@ class EmployeeGroupRepositoryIntegrationTest {
 
         EmployeeGroup reloaded = employeeGroupRepository.findById(child.getId()).orElseThrow();
         assertThat(reloaded.getParent().getId()).isEqualTo(second.getId());
-        assertThat(employeeGroupRepository.findByParentId(first.getId())).isEmpty();
-        assertThat(employeeGroupRepository.findByParentId(second.getId()))
+        assertThat(employeeGroupRepository.findByParentId(first.getId(), ONE_PAGE)).isEmpty();
+        assertThat(employeeGroupRepository.findByParentId(second.getId(), ONE_PAGE))
                 .extracting(EmployeeGroup::getId)
                 .containsExactly(child.getId());
 

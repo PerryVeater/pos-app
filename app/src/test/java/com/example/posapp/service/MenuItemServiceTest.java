@@ -17,6 +17,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import com.example.posapp.entity.Category;
 import com.example.posapp.entity.MenuItem;
@@ -425,11 +429,11 @@ class MenuItemServiceTest {
     @Test
     @DisplayName("getAllMenuItems: returns every menu item in the repository")
     void getAllMenuItemsReturnsAll() {
-        when(menuItemRepo.findAll()).thenReturn(List.of(
+        when(menuItemRepo.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(
                 menuItem("Cola", "COLA-001", "2.50"),
-                menuItem("Fries", "FRIES-001", "4.25")));
+                menuItem("Fries", "FRIES-001", "4.25"))));
 
-        List<MenuItem> items = menuItemService.getAllMenuItems();
+        Page<MenuItem> items = menuItemService.getAllMenuItems(PageRequest.of(0, 25));
 
         assertThat(items).hasSize(2)
                 .extracting(MenuItem::getName)

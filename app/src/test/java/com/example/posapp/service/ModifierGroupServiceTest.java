@@ -17,6 +17,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import com.example.posapp.entity.Modifier;
 import com.example.posapp.entity.ModifierGroup;
@@ -211,11 +215,11 @@ class ModifierGroupServiceTest {
     @Test
     @DisplayName("getAllModifierGroups: returns every group")
     void getAllModifierGroupsReturnsAll() {
-        when(modifierGroupRepo.findAll()).thenReturn(List.of(
+        when(modifierGroupRepo.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(
                 group("Pizza toppings", 0, 3),
-                group("Burgers", 0, 5)));
+                group("Burgers", 0, 5))));
 
-        List<ModifierGroup> groups = modifierGroupService.getAllModifierGroups();
+        Page<ModifierGroup> groups = modifierGroupService.getAllModifierGroups(PageRequest.of(0, 25));
 
         assertThat(groups).hasSize(2)
                 .extracting(ModifierGroup::getName)
@@ -238,15 +242,17 @@ class ModifierGroupServiceTest {
         Modifier cheese = new Modifier("Extra cheese", new BigDecimal("1.00"));
         Modifier pepperoni = new Modifier("Pepperoni", new BigDecimal("2.00"));
         when(modifierGroupRepo.existsById(1L)).thenReturn(true);
-        when(assignmentRepo.findByModifierGroupIdOrderByDisplayOrder(1L)).thenReturn(List.of(
-                new ModifierGroupAssignment(group, cheese, 1),
-                new ModifierGroupAssignment(group, pepperoni, 2)));
+        when(assignmentRepo.findByModifierGroupIdOrderByDisplayOrder(any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        new ModifierGroupAssignment(group, cheese, 1),
+                        new ModifierGroupAssignment(group, pepperoni, 2))));
 
-        List<ModifierGroupAssignment> result = modifierGroupService.listModifierAssignments(1L);
+        Page<ModifierGroupAssignment> result = modifierGroupService
+                .listModifierAssignments(1L, PageRequest.of(0, 25));
 
         assertThat(result).hasSize(2);
-        assertThat(result.get(0).getModifier().getName()).isEqualTo("Extra cheese");
-        assertThat(result.get(1).getModifier().getName()).isEqualTo("Pepperoni");
+        assertThat(result.getContent().get(0).getModifier().getName()).isEqualTo("Extra cheese");
+        assertThat(result.getContent().get(1).getModifier().getName()).isEqualTo("Pepperoni");
     }
 
     @Test
@@ -254,7 +260,8 @@ class ModifierGroupServiceTest {
     void listModifierAssignmentsThrowsForMissingGroup() {
         when(modifierGroupRepo.existsById(99L)).thenReturn(false);
 
-        assertThatThrownBy(() -> modifierGroupService.listModifierAssignments(99L))
+        assertThatThrownBy(() -> modifierGroupService.listModifierAssignments(
+                        99L, PageRequest.of(0, 25)))
                 .isInstanceOf(ModifierGroupNotFoundException.class);
     }
 

@@ -1,7 +1,5 @@
 package com.example.posapp.controller;
 
-import java.util.List;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -11,11 +9,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.posapp.dto.EmployeeGroupRequest;
 import com.example.posapp.dto.EmployeeGroupResponse;
 import com.example.posapp.dto.EmployeeGroupUpdateRequest;
+import com.example.posapp.dto.PageRequests;
+import com.example.posapp.dto.PageResponse;
 import com.example.posapp.entity.EmployeeGroup;
 import com.example.posapp.exception.EmployeeGroupNotFoundException;
 import com.example.posapp.security.BackOfficePrincipal;
@@ -57,16 +58,21 @@ public class EmployeeGroupController {
     }
 
     /**
-     * List the employee groups in the caller's brand.
+     * List the employee groups in the caller's brand, one page at a time.
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
      * @param principal the authenticated caller, whose brand scopes the request
-     * @return all employee groups of that brand as API responses
+     * @return the requested page of that brand's employee groups
      */
     @GetMapping
-    public List<EmployeeGroupResponse> getEmployeeGroups(
+    public PageResponse<EmployeeGroupResponse> getEmployeeGroups(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
             @AuthenticationPrincipal BackOfficePrincipal principal) {
-        return employeeGroupService.getAllEmployeeGroups(principal.organizationId()).stream()
-                .map(EmployeeGroupResponse::from)
-                .toList();
+        return PageResponse.from(
+                employeeGroupService.getAllEmployeeGroups(principal.organizationId(),
+                        PageRequests.of(page, size).toPageable()),
+                EmployeeGroupResponse::from);
     }
 
     /**
@@ -142,17 +148,22 @@ public class EmployeeGroupController {
 
     /**
      * List the direct child groups of an employee group, within the
-     * caller's brand.
+     * caller's brand, one page at a time.
      * @param id the parent group ID
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
      * @param principal the authenticated caller, whose brand scopes the request
-     * @return the child groups of the parent
+     * @return the requested page of child groups
      */
     @GetMapping("/{id}/children")
-    public List<EmployeeGroupResponse> listChildGroups(
+    public PageResponse<EmployeeGroupResponse> listChildGroups(
             @PathVariable Long id,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
             @AuthenticationPrincipal BackOfficePrincipal principal) {
-        return employeeGroupService.listChildGroups(id, principal.organizationId()).stream()
-                .map(EmployeeGroupResponse::from)
-                .toList();
+        return PageResponse.from(
+                employeeGroupService.listChildGroups(id, principal.organizationId(),
+                        PageRequests.of(page, size).toPageable()),
+                EmployeeGroupResponse::from);
     }
 }

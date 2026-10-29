@@ -26,6 +26,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -80,28 +82,33 @@ class OrganizationControllerTest {
     // --- GET /api/v1/organizations ---
 
     @Test
-    @DisplayName("GET /api/v1/organizations returns an empty list")
+    @DisplayName("GET /api/v1/organizations returns an empty page")
     void listOrganizationsEmpty() throws Exception {
-        when(organizationService.getAllOrganizations(BRAND_ID)).thenReturn(List.of());
+        when(organizationService.getAllOrganizations(eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/organizations"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", hasSize(0)));
+                .andExpect(jsonPath("$.content", hasSize(0)));
 
-        verify(organizationService).getAllOrganizations(BRAND_ID);
+        verify(organizationService).getAllOrganizations(eq(BRAND_ID), any(Pageable.class));
     }
 
     @Test
-    @DisplayName("GET /api/v1/organizations returns the caller's brand alone, without embedding stores")
+    @DisplayName("GET /api/v1/organizations returns one page of the caller's brand, no stores")
     void listOrganizationsReturnsTheBrand() throws Exception {
-        when(organizationService.getAllOrganizations(BRAND_ID)).thenReturn(List.of(acme()));
+        when(organizationService.getAllOrganizations(eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(acme())));
 
         mockMvc.perform(get("/api/v1/organizations"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].name").value("Acme Restaurants"))
-                .andExpect(jsonPath("$[0].stores").doesNotExist());
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].name").value("Acme Restaurants"))
+                .andExpect(jsonPath("$.content[0].stores").doesNotExist())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     // --- GET /api/v1/organizations/{id} ---
@@ -249,26 +256,30 @@ class OrganizationControllerTest {
     // --- GET /api/v1/organizations/{id}/stores ---
 
     @Test
-    @DisplayName("GET /api/v1/organizations/{id}/stores returns the owned stores")
+    @DisplayName("GET /api/v1/organizations/{id}/stores returns one page of the owned stores")
     void listStoresReturnsAssignedStores() throws Exception {
         Organization acme = acme();
         Store downtown = new Store(acme, "Downtown", "US", "CA", "Los Angeles",
                 "123 Main St", "90001", "America/Los_Angeles");
         Store airport = new Store(acme, "Airport", "US", "CA", "San Francisco",
                 "55 Sky Rd", "94102", "America/Los_Angeles");
-        when(organizationService.listStores(1L, BRAND_ID)).thenReturn(List.of(downtown, airport));
+        when(organizationService.listStores(eq(1L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(downtown, airport)));
 
         mockMvc.perform(get("/api/v1/organizations/1/stores"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Downtown"))
-                .andExpect(jsonPath("$[1].name").value("Airport"));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Downtown"))
+                .andExpect(jsonPath("$.content[1].name").value("Airport"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     @Test
     @DisplayName("GET /api/v1/organizations/{id}/stores returns 404 when the organization is missing")
     void listStoresMissingOrganizationReturns404() throws Exception {
-        when(organizationService.listStores(99L, BRAND_ID))
+        when(organizationService.listStores(eq(99L), eq(BRAND_ID), any(Pageable.class)))
                 .thenThrow(new OrganizationNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/organizations/99/stores"))
@@ -277,50 +288,57 @@ class OrganizationControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/v1/organizations/{id}/stores returns an empty array for an organization with no stores")
+    @DisplayName("GET /api/v1/organizations/{id}/stores returns an empty page when there are no stores")
     void listStoresEmptyReturnsEmptyArray() throws Exception {
-        when(organizationService.listStores(1L, BRAND_ID)).thenReturn(List.of());
+        when(organizationService.listStores(eq(1L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/organizations/1/stores"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(0)));
+                .andExpect(jsonPath("$.content", hasSize(0)))
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     // --- GET /api/v1/organizations/{id}/employee-groups ---
 
     @Test
-    @DisplayName("GET /api/v1/organizations/{id}/employee-groups returns the root groups")
+    @DisplayName("GET /api/v1/organizations/{id}/employee-groups returns one page of root groups")
     void listEmployeeGroupsReturnsRoots() throws Exception {
         Organization acme = acme();
         EmployeeGroup front = new EmployeeGroup("Front of House");
         front.setOrganization(acme);
         EmployeeGroup back = new EmployeeGroup("Back of House");
         back.setOrganization(acme);
-        when(organizationService.listRootEmployeeGroups(1L, BRAND_ID))
-                .thenReturn(List.of(front, back));
+        when(organizationService.listRootEmployeeGroups(eq(1L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(front, back)));
 
         mockMvc.perform(get("/api/v1/organizations/1/employee-groups"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Front of House"))
-                .andExpect(jsonPath("$[1].name").value("Back of House"))
-                .andExpect(jsonPath("$[0].children").doesNotExist());
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Front of House"))
+                .andExpect(jsonPath("$.content[1].name").value("Back of House"))
+                .andExpect(jsonPath("$.content[0].children").doesNotExist())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     @Test
-    @DisplayName("GET /api/v1/organizations/{id}/employee-groups returns an empty array when none exist")
+    @DisplayName("GET /api/v1/organizations/{id}/employee-groups returns an empty page when none exist")
     void listEmployeeGroupsEmptyReturnsEmptyArray() throws Exception {
-        when(organizationService.listRootEmployeeGroups(1L, BRAND_ID)).thenReturn(List.of());
+        when(organizationService.listRootEmployeeGroups(eq(1L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/organizations/1/employee-groups"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(0)));
+                .andExpect(jsonPath("$.content", hasSize(0)))
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     @Test
     @DisplayName("GET /api/v1/organizations/{id}/employee-groups returns 404 when the organization is missing")
     void listEmployeeGroupsMissingOrganizationReturns404() throws Exception {
-        when(organizationService.listRootEmployeeGroups(99L, BRAND_ID))
+        when(organizationService.listRootEmployeeGroups(eq(99L), eq(BRAND_ID), any(Pageable.class)))
                 .thenThrow(new OrganizationNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/organizations/99/employee-groups"))

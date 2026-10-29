@@ -5,8 +5,11 @@ import java.util.List;
 import static com.example.posapp.controller.BrandScopeTestSupport.BRAND_ID;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -24,11 +27,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.example.posapp.entity.Employee;
+import com.example.posapp.entity.EmployeeStoreAssignment;
 import com.example.posapp.entity.Store;
 import com.example.posapp.exception.EmployeeNotFoundException;
 import com.example.posapp.exception.EmployeeStoreValidationException;
@@ -213,33 +219,42 @@ class EmployeeStoreAssignmentControllerTest {
     // --- GET /api/v1/employees/{employeeId}/stores ---
 
     @Test
-    @DisplayName("GET /api/v1/employees/{id}/stores returns the employee's stores")
+    @DisplayName("GET /api/v1/employees/{id}/stores returns one page of the employee's stores")
     void listStoresForEmployeeReturnsList() throws Exception {
-        when(assignmentService.listStoresForEmployee(1L, BRAND_ID))
-                .thenReturn(List.of(store("Downtown"), store("Airport")));
+        EmployeeStoreAssignment downtown = mock(EmployeeStoreAssignment.class);
+        when(downtown.getStore()).thenReturn(store("Downtown"));
+        EmployeeStoreAssignment airport = mock(EmployeeStoreAssignment.class);
+        when(airport.getStore()).thenReturn(store("Airport"));
+        when(assignmentService.listStoresForEmployee(eq(1L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(downtown, airport)));
 
         mockMvc.perform(get("/api/v1/employees/1/stores"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Downtown"))
-                .andExpect(jsonPath("$[1].name").value("Airport"));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Downtown"))
+                .andExpect(jsonPath("$.content[1].name").value("Airport"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     @Test
-    @DisplayName("GET /api/v1/employees/{id}/stores returns an empty array when the employee has no assignments")
+    @DisplayName("GET /api/v1/employees/{id}/stores returns an empty page when the employee has no assignments")
     void listStoresForEmployeeEmptyReturnsEmptyArray() throws Exception {
-        when(assignmentService.listStoresForEmployee(1L, BRAND_ID)).thenReturn(List.of());
+        when(assignmentService.listStoresForEmployee(eq(1L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/employees/1/stores"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(0)));
+                .andExpect(jsonPath("$.content", hasSize(0)))
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     @Test
     @DisplayName("GET /api/v1/employees/{id}/stores returns 404 when the employee is missing")
     void listStoresForEmployeeMissingReturns404() throws Exception {
-        when(assignmentService.listStoresForEmployee(99L, BRAND_ID))
+        when(assignmentService.listStoresForEmployee(eq(99L), eq(BRAND_ID), any(Pageable.class)))
                 .thenThrow(new EmployeeNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/employees/99/stores"))
@@ -251,33 +266,42 @@ class EmployeeStoreAssignmentControllerTest {
     // --- GET /api/v1/stores/{storeId}/employees ---
 
     @Test
-    @DisplayName("GET /api/v1/stores/{id}/employees returns the store's employees")
+    @DisplayName("GET /api/v1/stores/{id}/employees returns one page of employees")
     void listEmployeesForStoreReturnsList() throws Exception {
-        when(assignmentService.listEmployeesForStore(2L, BRAND_ID))
-                .thenReturn(List.of(employee("Ada"), employee("Grace")));
+        EmployeeStoreAssignment ada = mock(EmployeeStoreAssignment.class);
+        when(ada.getEmployee()).thenReturn(employee("Ada"));
+        EmployeeStoreAssignment grace = mock(EmployeeStoreAssignment.class);
+        when(grace.getEmployee()).thenReturn(employee("Grace"));
+        when(assignmentService.listEmployeesForStore(eq(2L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(ada, grace)));
 
         mockMvc.perform(get("/api/v1/stores/2/employees"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Ada"))
-                .andExpect(jsonPath("$[1].name").value("Grace"));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Ada"))
+                .andExpect(jsonPath("$.content[1].name").value("Grace"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     @Test
-    @DisplayName("GET /api/v1/stores/{id}/employees returns an empty array when the store has no assignments")
+    @DisplayName("GET /api/v1/stores/{id}/employees returns an empty page when the store has no assignments")
     void listEmployeesForStoreEmptyReturnsEmptyArray() throws Exception {
-        when(assignmentService.listEmployeesForStore(2L, BRAND_ID)).thenReturn(List.of());
+        when(assignmentService.listEmployeesForStore(eq(2L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/stores/2/employees"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(0)));
+                .andExpect(jsonPath("$.content", hasSize(0)))
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     @Test
     @DisplayName("GET /api/v1/stores/{id}/employees returns 404 when the store is missing")
     void listEmployeesForStoreMissingReturns404() throws Exception {
-        when(assignmentService.listEmployeesForStore(99L, BRAND_ID))
+        when(assignmentService.listEmployeesForStore(eq(99L), eq(BRAND_ID), any(Pageable.class)))
                 .thenThrow(new StoreNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/stores/99/employees"))

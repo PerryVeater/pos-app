@@ -1,7 +1,5 @@
 package com.example.posapp.controller;
 
-import java.util.List;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -10,10 +8,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.posapp.dto.ModifierRequest;
 import com.example.posapp.dto.ModifierResponse;
+import com.example.posapp.dto.PageRequests;
+import com.example.posapp.dto.PageResponse;
 import com.example.posapp.entity.Modifier;
 import com.example.posapp.exception.ModifierNotFoundException;
 import com.example.posapp.service.ModifierService;
@@ -43,14 +44,18 @@ public class ModifierController {
     }
 
     /**
-     * List every modifier.
-     * @return all modifiers as API responses
+     * List every modifier, one page at a time.
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
+     * @return the requested page of modifiers as API responses
      */
     @GetMapping
-    public List<ModifierResponse> getModifiers() {
-        return modifierService.getAllModifiers().stream()
-                .map(ModifierResponse::from)
-                .toList();
+    public PageResponse<ModifierResponse> getModifiers(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return PageResponse.from(
+                modifierService.getAllModifiers(PageRequests.of(page, size).toPageable()),
+                ModifierResponse::from);
     }
 
     /**

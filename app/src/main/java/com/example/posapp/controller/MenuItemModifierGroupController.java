@@ -1,7 +1,5 @@
 package com.example.posapp.controller;
 
-import java.util.List;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -9,10 +7,13 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.posapp.dto.MenuItemModifierGroupAssignmentRequest;
 import com.example.posapp.dto.MenuItemModifierGroupAssignmentResponse;
+import com.example.posapp.dto.PageRequests;
+import com.example.posapp.dto.PageResponse;
 import com.example.posapp.service.MenuItemModifierGroupService;
 
 import jakarta.validation.Valid;
@@ -43,15 +44,21 @@ public class MenuItemModifierGroupController {
     }
 
     /**
-     * List the modifier groups assigned to a menu item, ordered by display position.
+     * List the modifier groups assigned to a menu item, in display order,
+     * one page at a time.
      * @param id the menu item ID
-     * @return the ordered assignments
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
+     * @return the requested page of assignments
      */
     @GetMapping("/{id}/modifier-groups")
-    public List<MenuItemModifierGroupAssignmentResponse> listModifierGroups(@PathVariable Long id) {
-        return assignmentService.listAssignments(id).stream()
-                .map(MenuItemModifierGroupAssignmentResponse::from)
-                .toList();
+    public PageResponse<MenuItemModifierGroupAssignmentResponse> listModifierGroups(
+            @PathVariable Long id,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return PageResponse.from(assignmentService.listAssignments(id,
+                        PageRequests.of(page, size).toPageable()),
+                MenuItemModifierGroupAssignmentResponse::from);
     }
 
     /**

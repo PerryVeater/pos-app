@@ -1,8 +1,9 @@
 package com.example.posapp.service;
 
-import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.example.posapp.entity.MenuGroup;
@@ -109,11 +110,12 @@ public class MenuGroupService {
     }
 
     /**
-     * Retrieve every menu group.
-     * @return the list of menu groups
+     * Retrieve every menu group, one page at a time.
+     * @param pageable the page to serve
+     * @return the requested page of menu groups
      */
-    public List<MenuGroup> getAllMenuGroups() {
-        return menuGroupRepo.findAll();
+    public Page<MenuGroup> getAllMenuGroups(Pageable pageable) {
+        return menuGroupRepo.findAll(pageable);
     }
 
     /**
@@ -131,16 +133,17 @@ public class MenuGroupService {
 
     /**
      * Return the menu item assignments attached to a menu group, ordered by
-     * display position.
+     * display position, one page at a time.
      * @param menuGroupId the menu group ID
-     * @return the ordered assignments (empty when the group has none)
+     * @param pageable the page to serve, sorted to break display-order ties
+     * @return the requested page of assignments (empty when the group has none)
      * @throws MenuGroupNotFoundException if no group exists with the ID
      */
-    public List<MenuItemAssignment> listItemAssignments(Long menuGroupId) {
+    public Page<MenuItemAssignment> listItemAssignments(Long menuGroupId, Pageable pageable) {
         if (!menuGroupRepo.existsById(menuGroupId)) {
             throw new MenuGroupNotFoundException(menuGroupId);
         }
-        return itemAssignmentRepo.findByMenuGroupIdOrderByDisplayOrder(menuGroupId);
+        return itemAssignmentRepo.findByMenuGroupIdOrderByDisplayOrder(menuGroupId, pageable);
     }
 
     /**

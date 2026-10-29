@@ -1,7 +1,5 @@
 package com.example.posapp.controller;
 
-import java.util.List;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -11,10 +9,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.posapp.dto.EmployeeRequest;
 import com.example.posapp.dto.EmployeeResponse;
+import com.example.posapp.dto.PageRequests;
+import com.example.posapp.dto.PageResponse;
 import com.example.posapp.entity.Employee;
 import com.example.posapp.exception.EmployeeNotFoundException;
 import com.example.posapp.security.BackOfficePrincipal;
@@ -53,15 +54,21 @@ public class EmployeeController {
     }
 
     /**
-     * List the employees in the caller's brand.
+     * List the employees in the caller's brand, one page at a time.
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
      * @param principal the authenticated caller, whose brand scopes the request
-     * @return the employees of that brand as API responses
+     * @return the requested page of that brand's employees
      */
     @GetMapping
-    public List<EmployeeResponse> getEmployees(@AuthenticationPrincipal BackOfficePrincipal principal) {
-        return employeeService.getAllEmployees(principal.organizationId()).stream()
-                .map(EmployeeResponse::from)
-                .toList();
+    public PageResponse<EmployeeResponse> getEmployees(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            @AuthenticationPrincipal BackOfficePrincipal principal) {
+        return PageResponse.from(
+                employeeService.getAllEmployees(principal.organizationId(),
+                        PageRequests.of(page, size).toPageable()),
+                EmployeeResponse::from);
     }
 
     /**

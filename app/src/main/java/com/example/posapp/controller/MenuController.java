@@ -2,6 +2,7 @@ package com.example.posapp.controller;
 
 import java.util.List;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -10,13 +11,17 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.posapp.dto.MenuGroupAssignmentRequest;
 import com.example.posapp.dto.MenuGroupAssignmentResponse;
 import com.example.posapp.dto.MenuRequest;
 import com.example.posapp.dto.MenuResponse;
+import com.example.posapp.dto.PageRequests;
+import com.example.posapp.dto.PageResponse;
 import com.example.posapp.entity.Menu;
+import com.example.posapp.entity.MenuGroupAssignment;
 import com.example.posapp.exception.MenuNotFoundException;
 import com.example.posapp.service.MenuService;
 
@@ -46,16 +51,19 @@ public class MenuController {
     }
 
     /**
-     * List all menus. Assignments are returned empty in the collection view
-     * to avoid an N+1 query; use {@code GET /api/v1/menus/{id}} for the
-     * full detail.
-     * @return every menu as an API response
+     * List all menus, one page at a time. Assignments are returned empty in
+     * the collection view to avoid an N+1 query; use
+     * {@code GET /api/v1/menus/{id}} for the full detail.
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
+     * @return the requested page of menus as API responses
      */
     @GetMapping
-    public List<MenuResponse> getMenus() {
-        return menuService.getAllMenus().stream()
-                .map(menu -> MenuResponse.from(menu, List.of()))
-                .toList();
+    public PageResponse<MenuResponse> getMenus(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return PageResponse.from(menuService.getAllMenus(PageRequests.of(page, size).toPageable()),
+                menu -> MenuResponse.from(menu, List.of()));
     }
 
     /**
@@ -68,7 +76,7 @@ public class MenuController {
     public ResponseEntity<MenuResponse> getMenu(@PathVariable Long id) {
         Menu menu = menuService.getMenuById(id)
                 .orElseThrow(() -> new MenuNotFoundException(id));
-        return ResponseEntity.ok(MenuResponse.from(menu, menuService.listAssignments(id)));
+        return ResponseEntity.ok(MenuResponse.from(menu, allAssignments(id)));
     }
 
     /**
@@ -91,7 +99,7 @@ public class MenuController {
     @PutMapping("/{id}")
     public MenuResponse updateMenu(@PathVariable Long id, @Valid @RequestBody MenuRequest request) {
         Menu updated = menuService.updateMenu(id, request.toEntity());
-        return MenuResponse.from(updated, menuService.listAssignments(id));
+        return MenuResponse.from(updated, allAssignments(id));
     }
 
     /**
@@ -107,15 +115,21 @@ public class MenuController {
     }
 
     /**
-     * List the menu groups assigned to a menu, ordered by display position.
+     * List the menu groups assigned to a menu, in display order, one page at
+     * a time.
      * @param id the menu ID
-     * @return the ordered assignments
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
+     * @return the requested page of assignments
      */
     @GetMapping("/{id}/menu-groups")
-    public List<MenuGroupAssignmentResponse> listMenuGroups(@PathVariable Long id) {
-        return menuService.listAssignments(id).stream()
-                .map(MenuGroupAssignmentResponse::from)
-                .toList();
+    public PageResponse<MenuGroupAssignmentResponse> listMenuGroups(
+            @PathVariable Long id,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return PageResponse.from(menuService.listAssignments(id,
+                        PageRequests.of(page, size).toPageable()),
+                MenuGroupAssignmentResponse::from);
     }
 
     /**
@@ -144,5 +158,16 @@ public class MenuController {
             @PathVariable Long menuGroupId) {
         menuService.unassignGroup(id, menuGroupId);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Read a menu's full assignment list for the detail view. The detail is
+     * a single aggregate's children rather than a list endpoint, so it is
+     * deliberately not paged.
+     * @param menuId the menu ID
+     * @return every assignment, in display order
+     */
+    private List<MenuGroupAssignment> allAssignments(Long menuId) {
+        return menuService.listAssignments(menuId, Pageable.unpaged()).getContent();
     }
 }

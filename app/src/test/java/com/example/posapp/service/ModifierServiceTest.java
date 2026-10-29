@@ -17,6 +17,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import com.example.posapp.entity.Modifier;
 import com.example.posapp.exception.ModifierNotFoundException;
@@ -230,11 +234,11 @@ class ModifierServiceTest {
     @Test
     @DisplayName("getAllModifiers: returns every modifier in the repository")
     void getAllModifiersReturnsAll() {
-        when(modifierRepo.findAll()).thenReturn(List.of(
+        when(modifierRepo.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(
                 modifier("Extra cheese", "1.50"),
-                modifier("No onions", "0.00")));
+                modifier("No onions", "0.00"))));
 
-        List<Modifier> modifiers = modifierService.getAllModifiers();
+        Page<Modifier> modifiers = modifierService.getAllModifiers(PageRequest.of(0, 25));
 
         assertThat(modifiers).hasSize(2)
                 .extracting(Modifier::getName)

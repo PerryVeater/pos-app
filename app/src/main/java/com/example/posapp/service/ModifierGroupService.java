@@ -1,8 +1,9 @@
 package com.example.posapp.service;
 
-import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.example.posapp.entity.Modifier;
@@ -117,11 +118,12 @@ public class ModifierGroupService {
     }
 
     /**
-     * Retrieve every modifier group.
-     * @return the list of modifier groups
+     * Retrieve every modifier group, one page at a time.
+     * @param pageable the page to serve
+     * @return the requested page of modifier groups
      */
-    public List<ModifierGroup> getAllModifierGroups() {
-        return modifierGroupRepo.findAll();
+    public Page<ModifierGroup> getAllModifierGroups(Pageable pageable) {
+        return modifierGroupRepo.findAll(pageable);
     }
 
     /**
@@ -138,16 +140,20 @@ public class ModifierGroupService {
     }
 
     /**
-     * Return the modifier assignments attached to a group, ordered by display position.
+     * Return the modifier assignments attached to a group, ordered by display
+     * position, one page at a time.
      * @param modifierGroupId the modifier group ID
-     * @return the ordered assignments (empty when the group has none)
+     * @param pageable the page to serve, sorted to break display-order ties
+     * @return the requested page of assignments (empty when the group has none)
      * @throws ModifierGroupNotFoundException if no group exists with the ID
      */
-    public List<ModifierGroupAssignment> listModifierAssignments(Long modifierGroupId) {
+    public Page<ModifierGroupAssignment> listModifierAssignments(Long modifierGroupId,
+                                                                Pageable pageable) {
         if (!modifierGroupRepo.existsById(modifierGroupId)) {
             throw new ModifierGroupNotFoundException(modifierGroupId);
         }
-        return assignmentRepo.findByModifierGroupIdOrderByDisplayOrder(modifierGroupId);
+        return assignmentRepo.findByModifierGroupIdOrderByDisplayOrder(
+                modifierGroupId, pageable);
     }
 
     /**

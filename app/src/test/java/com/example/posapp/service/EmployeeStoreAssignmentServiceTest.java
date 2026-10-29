@@ -7,6 +7,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -20,6 +21,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import com.example.posapp.entity.Employee;
 import com.example.posapp.entity.EmployeeStoreAssignment;
@@ -359,21 +364,19 @@ class EmployeeStoreAssignmentServiceTest {
     // --- listStoresForEmployee ---
 
     @Test
-    @DisplayName("listStoresForEmployee: returns the stores referenced by the assignments")
-    void listStoresForEmployeeReturnsAssignedStores() {
+    @DisplayName("listStoresForEmployee: returns the employee's assignments")
+    void listStoresForEmployeeReturnsAssignments() {
         when(employeeRepo.findByIdAndOrganizationId(10L, BRAND))
                 .thenReturn(Optional.of(mock(Employee.class)));
-        Store firstStore = mock(Store.class);
-        Store secondStore = mock(Store.class);
         EmployeeStoreAssignment first = mock(EmployeeStoreAssignment.class);
         EmployeeStoreAssignment second = mock(EmployeeStoreAssignment.class);
-        when(first.getStore()).thenReturn(firstStore);
-        when(second.getStore()).thenReturn(secondStore);
-        when(assignmentRepo.findByEmployeeId(10L)).thenReturn(List.of(first, second));
+        when(assignmentRepo.findByEmployeeId(eq(10L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(first, second)));
 
-        List<Store> stores = assignmentService.listStoresForEmployee(10L, BRAND);
+        Page<EmployeeStoreAssignment> assignments = assignmentService
+                .listStoresForEmployee(10L, BRAND, PageRequest.of(0, 25));
 
-        assertThat(stores).containsExactly(firstStore, secondStore);
+        assertThat(assignments).containsExactly(first, second);
     }
 
     @Test
@@ -381,9 +384,11 @@ class EmployeeStoreAssignmentServiceTest {
     void listStoresForEmployeeEmptyReturnsEmptyList() {
         when(employeeRepo.findByIdAndOrganizationId(10L, BRAND))
                 .thenReturn(Optional.of(mock(Employee.class)));
-        when(assignmentRepo.findByEmployeeId(10L)).thenReturn(List.of());
+        when(assignmentRepo.findByEmployeeId(eq(10L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
-        assertThat(assignmentService.listStoresForEmployee(10L, BRAND)).isEmpty();
+        assertThat(assignmentService.listStoresForEmployee(10L, BRAND, PageRequest.of(0, 25)))
+                .isEmpty();
     }
 
     @Test
@@ -391,32 +396,30 @@ class EmployeeStoreAssignmentServiceTest {
     void listStoresForEmployeeMissingThrows() {
         when(employeeRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> assignmentService.listStoresForEmployee(99L, BRAND))
+        assertThatThrownBy(() -> assignmentService.listStoresForEmployee(99L, BRAND,
+                        PageRequest.of(0, 25)))
                 .isInstanceOf(EmployeeNotFoundException.class)
                 .hasMessageContaining("99");
 
-        verify(assignmentRepo, never()).findByEmployeeId(any());
+        verify(assignmentRepo, never()).findByEmployeeId(any(), any());
     }
 
     // --- listEmployeesForStore ---
 
     @Test
-    @DisplayName("listEmployeesForStore: returns the employees referenced by the assignments")
-    void listEmployeesForStoreReturnsAssignedEmployees() {
+    @DisplayName("listEmployeesForStore: returns the store's assignments")
+    void listEmployeesForStoreReturnsAssignments() {
         when(storeRepo.findByIdAndOrganizationId(20L, BRAND))
                 .thenReturn(Optional.of(mock(Store.class)));
-        Employee first = mock(Employee.class);
-        Employee second = mock(Employee.class);
         EmployeeStoreAssignment firstAssignment = mock(EmployeeStoreAssignment.class);
         EmployeeStoreAssignment secondAssignment = mock(EmployeeStoreAssignment.class);
-        when(firstAssignment.getEmployee()).thenReturn(first);
-        when(secondAssignment.getEmployee()).thenReturn(second);
-        when(assignmentRepo.findByStoreId(20L))
-                .thenReturn(List.of(firstAssignment, secondAssignment));
+        when(assignmentRepo.findByStoreId(eq(20L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(firstAssignment, secondAssignment)));
 
-        List<Employee> employees = assignmentService.listEmployeesForStore(20L, BRAND);
+        Page<EmployeeStoreAssignment> assignments = assignmentService
+                .listEmployeesForStore(20L, BRAND, PageRequest.of(0, 25));
 
-        assertThat(employees).containsExactly(first, second);
+        assertThat(assignments).containsExactly(firstAssignment, secondAssignment);
     }
 
     @Test
@@ -424,9 +427,11 @@ class EmployeeStoreAssignmentServiceTest {
     void listEmployeesForStoreEmptyReturnsEmptyList() {
         when(storeRepo.findByIdAndOrganizationId(20L, BRAND))
                 .thenReturn(Optional.of(mock(Store.class)));
-        when(assignmentRepo.findByStoreId(20L)).thenReturn(List.of());
+        when(assignmentRepo.findByStoreId(eq(20L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
-        assertThat(assignmentService.listEmployeesForStore(20L, BRAND)).isEmpty();
+        assertThat(assignmentService.listEmployeesForStore(20L, BRAND, PageRequest.of(0, 25)))
+                .isEmpty();
     }
 
     @Test
@@ -434,10 +439,11 @@ class EmployeeStoreAssignmentServiceTest {
     void listEmployeesForStoreMissingThrows() {
         when(storeRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> assignmentService.listEmployeesForStore(99L, BRAND))
+        assertThatThrownBy(() -> assignmentService.listEmployeesForStore(99L, BRAND,
+                        PageRequest.of(0, 25)))
                 .isInstanceOf(StoreNotFoundException.class)
                 .hasMessageContaining("99");
 
-        verify(assignmentRepo, never()).findByStoreId(any());
+        verify(assignmentRepo, never()).findByStoreId(any(), any());
     }
 }

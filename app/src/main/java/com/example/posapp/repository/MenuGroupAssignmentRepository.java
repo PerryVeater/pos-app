@@ -1,8 +1,9 @@
 package com.example.posapp.repository;
 
-import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.example.posapp.entity.MenuGroupAssignment;
@@ -19,11 +20,18 @@ import com.example.posapp.entity.MenuGroupAssignment;
 public interface MenuGroupAssignmentRepository extends JpaRepository<MenuGroupAssignment, Long> {
 
     /**
-     * Find all assignments for a menu, ordered by their display position.
+     * Page through the assignments of a menu, ordered by display position.
+     * <p>
+     * {@code display_order} is not unique, so the order alone cannot place a
+     * row on exactly one page. The service passes a page request whose sort
+     * is appended after this clause, and the primary key in it breaks the
+     * tie.
+     * </p>
      * @param menuId the menu ID
-     * @return the list of assignments in display order
+     * @param pageable the page to serve, sorted to break display-order ties
+     * @return the requested page of assignments in display order
      */
-    List<MenuGroupAssignment> findByMenuIdOrderByDisplayOrder(Long menuId);
+    Page<MenuGroupAssignment> findByMenuIdOrderByDisplayOrder(Long menuId, Pageable pageable);
 
     /**
      * Find the assignment linking a specific menu to a specific menu group.

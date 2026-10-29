@@ -2,11 +2,12 @@ package com.example.posapp.service;
 
 import java.time.DateTimeException;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.example.posapp.entity.Organization;
@@ -180,12 +181,13 @@ public class StoreService {
     }
 
     /**
-     * Retrieve every store in the caller's brand.
+     * Retrieve one page of the stores in the caller's brand.
      * @param brandId the organization the caller may act within
-     * @return the stores of that organization
+     * @param pageable the page to serve
+     * @return the requested page of that organization's stores
      */
-    public List<Store> getAllStores(Long brandId) {
-        return storeRepo.findByOrganizationId(brandId);
+    public Page<Store> getAllStores(Long brandId, Pageable pageable) {
+        return storeRepo.findByOrganizationId(brandId, pageable);
     }
 
     /**

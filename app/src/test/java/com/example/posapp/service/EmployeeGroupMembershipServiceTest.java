@@ -7,6 +7,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -20,6 +21,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import com.example.posapp.entity.Employee;
 import com.example.posapp.entity.EmployeeGroup;
@@ -350,21 +355,19 @@ class EmployeeGroupMembershipServiceTest {
     // --- listGroupsForEmployee ---
 
     @Test
-    @DisplayName("listGroupsForEmployee: returns the groups referenced by the memberships")
-    void listGroupsForEmployeeReturnsAttachedGroups() {
+    @DisplayName("listGroupsForEmployee: returns the employee's memberships")
+    void listGroupsForEmployeeReturnsMemberships() {
         when(employeeRepo.findByIdAndOrganizationId(10L, BRAND))
                 .thenReturn(Optional.of(mock(Employee.class)));
-        EmployeeGroup firstGroup = new EmployeeGroup("Front of House");
-        EmployeeGroup secondGroup = new EmployeeGroup("Baristas");
         EmployeeGroupMembership first = mock(EmployeeGroupMembership.class);
         EmployeeGroupMembership second = mock(EmployeeGroupMembership.class);
-        when(first.getEmployeeGroup()).thenReturn(firstGroup);
-        when(second.getEmployeeGroup()).thenReturn(secondGroup);
-        when(membershipRepo.findByEmployeeId(10L)).thenReturn(List.of(first, second));
+        when(membershipRepo.findByEmployeeId(eq(10L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(first, second)));
 
-        List<EmployeeGroup> groups = membershipService.listGroupsForEmployee(10L, BRAND);
+        Page<EmployeeGroupMembership> memberships = membershipService
+                .listGroupsForEmployee(10L, BRAND, PageRequest.of(0, 25));
 
-        assertThat(groups).containsExactly(firstGroup, secondGroup);
+        assertThat(memberships).containsExactly(first, second);
     }
 
     @Test
@@ -372,9 +375,11 @@ class EmployeeGroupMembershipServiceTest {
     void listGroupsForEmployeeEmptyReturnsEmptyList() {
         when(employeeRepo.findByIdAndOrganizationId(10L, BRAND))
                 .thenReturn(Optional.of(mock(Employee.class)));
-        when(membershipRepo.findByEmployeeId(10L)).thenReturn(List.of());
+        when(membershipRepo.findByEmployeeId(eq(10L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
-        assertThat(membershipService.listGroupsForEmployee(10L, BRAND)).isEmpty();
+        assertThat(membershipService.listGroupsForEmployee(10L, BRAND, PageRequest.of(0, 25)))
+                .isEmpty();
     }
 
     @Test
@@ -382,32 +387,30 @@ class EmployeeGroupMembershipServiceTest {
     void listGroupsForEmployeeMissingThrows() {
         when(employeeRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> membershipService.listGroupsForEmployee(99L, BRAND))
+        assertThatThrownBy(() -> membershipService.listGroupsForEmployee(99L, BRAND,
+                        PageRequest.of(0, 25)))
                 .isInstanceOf(EmployeeNotFoundException.class)
                 .hasMessageContaining("99");
 
-        verify(membershipRepo, never()).findByEmployeeId(any());
+        verify(membershipRepo, never()).findByEmployeeId(any(), any());
     }
 
     // --- listEmployeesForGroup ---
 
     @Test
-    @DisplayName("listEmployeesForGroup: returns the employees referenced by the memberships")
-    void listEmployeesForGroupReturnsAttachedEmployees() {
+    @DisplayName("listEmployeesForGroup: returns the group's memberships")
+    void listEmployeesForGroupReturnsMemberships() {
         when(employeeGroupRepo.findByIdAndOrganizationId(20L, BRAND))
                 .thenReturn(Optional.of(mock(EmployeeGroup.class)));
-        Employee first = new Employee("Ada");
-        Employee second = new Employee("Grace");
         EmployeeGroupMembership firstMembership = mock(EmployeeGroupMembership.class);
         EmployeeGroupMembership secondMembership = mock(EmployeeGroupMembership.class);
-        when(firstMembership.getEmployee()).thenReturn(first);
-        when(secondMembership.getEmployee()).thenReturn(second);
-        when(membershipRepo.findByEmployeeGroupId(20L))
-                .thenReturn(List.of(firstMembership, secondMembership));
+        when(membershipRepo.findByEmployeeGroupId(eq(20L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(firstMembership, secondMembership)));
 
-        List<Employee> employees = membershipService.listEmployeesForGroup(20L, BRAND);
+        Page<EmployeeGroupMembership> memberships = membershipService
+                .listEmployeesForGroup(20L, BRAND, PageRequest.of(0, 25));
 
-        assertThat(employees).containsExactly(first, second);
+        assertThat(memberships).containsExactly(firstMembership, secondMembership);
     }
 
     @Test
@@ -415,9 +418,11 @@ class EmployeeGroupMembershipServiceTest {
     void listEmployeesForGroupEmptyReturnsEmptyList() {
         when(employeeGroupRepo.findByIdAndOrganizationId(20L, BRAND))
                 .thenReturn(Optional.of(mock(EmployeeGroup.class)));
-        when(membershipRepo.findByEmployeeGroupId(20L)).thenReturn(List.of());
+        when(membershipRepo.findByEmployeeGroupId(eq(20L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
-        assertThat(membershipService.listEmployeesForGroup(20L, BRAND)).isEmpty();
+        assertThat(membershipService.listEmployeesForGroup(20L, BRAND, PageRequest.of(0, 25)))
+                .isEmpty();
     }
 
     @Test
@@ -425,10 +430,11 @@ class EmployeeGroupMembershipServiceTest {
     void listEmployeesForGroupMissingThrows() {
         when(employeeGroupRepo.findByIdAndOrganizationId(99L, BRAND)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> membershipService.listEmployeesForGroup(99L, BRAND))
+        assertThatThrownBy(() -> membershipService.listEmployeesForGroup(99L, BRAND,
+                        PageRequest.of(0, 25)))
                 .isInstanceOf(EmployeeGroupNotFoundException.class)
                 .hasMessageContaining("99");
 
-        verify(membershipRepo, never()).findByEmployeeGroupId(any());
+        verify(membershipRepo, never()).findByEmployeeGroupId(any(), any());
     }
 }

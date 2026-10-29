@@ -17,6 +17,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import com.example.posapp.entity.Organization;
 import com.example.posapp.entity.Store;
@@ -489,9 +493,10 @@ class StoreServiceTest {
         Store airport = validStore();
         airport.setName("Airport");
         airport.setOrganization(acme);
-        when(storeRepo.findByOrganizationId(BRAND)).thenReturn(List.of(downtown, airport));
+        when(storeRepo.findByOrganizationId(eq(BRAND), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(downtown, airport)));
 
-        List<Store> all = storeService.getAllStores(BRAND);
+        Page<Store> all = storeService.getAllStores(BRAND, PageRequest.of(0, 25));
 
         assertThat(all).hasSize(2)
                 .extracting(Store::getName)

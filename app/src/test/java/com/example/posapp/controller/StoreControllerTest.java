@@ -26,6 +26,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -116,35 +118,41 @@ class StoreControllerTest {
     // --- GET /api/v1/stores ---
 
     @Test
-    @DisplayName("GET /api/v1/stores returns an empty array")
+    @DisplayName("GET /api/v1/stores returns an empty page")
     void listStoresEmpty() throws Exception {
-        when(storeService.getAllStores(BRAND_ID)).thenReturn(List.of());
+        when(storeService.getAllStores(eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/stores"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", hasSize(0)));
+                .andExpect(jsonPath("$.content", hasSize(0)))
+                .andExpect(jsonPath("$.totalElements").value(0));
 
         // The listing is the caller's brand, not every store in the database.
-        verify(storeService).getAllStores(BRAND_ID);
+        verify(storeService).getAllStores(eq(BRAND_ID), any(Pageable.class));
     }
 
     @Test
-    @DisplayName("GET /api/v1/stores returns every store with its flattened organization info")
+    @DisplayName("GET /api/v1/stores returns one page of stores with flattened organization info")
     void listStoresReturnsAll() throws Exception {
         Organization acme = acme();
-        when(storeService.getAllStores(BRAND_ID)).thenReturn(List.of(
-                store(acme, "Downtown"),
-                store(acme, "Airport")));
+        when(storeService.getAllStores(eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        store(acme, "Downtown"),
+                        store(acme, "Airport"))));
 
         mockMvc.perform(get("/api/v1/stores"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Downtown"))
-                .andExpect(jsonPath("$[0].organizationName").value("Acme Restaurants"))
-                .andExpect(jsonPath("$[0].country").value("US"))
-                .andExpect(jsonPath("$[0].timezone").value("America/Los_Angeles"))
-                .andExpect(jsonPath("$[1].name").value("Airport"));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Downtown"))
+                .andExpect(jsonPath("$.content[0].organizationName").value("Acme Restaurants"))
+                .andExpect(jsonPath("$.content[0].country").value("US"))
+                .andExpect(jsonPath("$.content[0].timezone").value("America/Los_Angeles"))
+                .andExpect(jsonPath("$.content[1].name").value("Airport"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     // --- GET /api/v1/stores/{id} ---

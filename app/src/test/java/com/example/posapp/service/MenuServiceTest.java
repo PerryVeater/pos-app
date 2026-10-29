@@ -16,6 +16,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import com.example.posapp.entity.Menu;
 import com.example.posapp.entity.MenuGroup;
@@ -226,11 +230,11 @@ class MenuServiceTest {
     @Test
     @DisplayName("getAllMenus: returns every menu in the repository")
     void getAllMenusReturnsAll() {
-        when(menuRepo.findAll()).thenReturn(List.of(
+        when(menuRepo.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(
                 new Menu("Lunch"),
-                new Menu("Dinner")));
+                new Menu("Dinner"))));
 
-        List<Menu> menus = menuService.getAllMenus();
+        Page<Menu> menus = menuService.getAllMenus(PageRequest.of(0, 25));
 
         assertThat(menus).hasSize(2)
                 .extracting(Menu::getName)
@@ -248,9 +252,10 @@ class MenuServiceTest {
         MenuGroupAssignment first = new MenuGroupAssignment(lunch, apps, 1);
         MenuGroupAssignment second = new MenuGroupAssignment(lunch, desserts, 2);
         when(menuRepo.existsById(1L)).thenReturn(true);
-        when(assignmentRepo.findByMenuIdOrderByDisplayOrder(1L)).thenReturn(List.of(first, second));
+        when(assignmentRepo.findByMenuIdOrderByDisplayOrder(any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(first, second)));
 
-        List<MenuGroupAssignment> result = menuService.listAssignments(1L);
+        Page<MenuGroupAssignment> result = menuService.listAssignments(1L, PageRequest.of(0, 25));
 
         assertThat(result).containsExactly(first, second);
     }
@@ -260,7 +265,7 @@ class MenuServiceTest {
     void listAssignmentsThrowsForMissingMenu() {
         when(menuRepo.existsById(99L)).thenReturn(false);
 
-        assertThatThrownBy(() -> menuService.listAssignments(99L))
+        assertThatThrownBy(() -> menuService.listAssignments(99L, PageRequest.of(0, 25)))
                 .isInstanceOf(MenuNotFoundException.class)
                 .hasMessageContaining("not found");
     }

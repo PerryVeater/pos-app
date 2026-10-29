@@ -1,17 +1,18 @@
 package com.example.posapp.controller;
 
-import java.util.List;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.posapp.dto.EmployeeGroupResponse;
 import com.example.posapp.dto.EmployeeResponse;
+import com.example.posapp.dto.PageRequests;
+import com.example.posapp.dto.PageResponse;
 import com.example.posapp.security.BackOfficePrincipal;
 import com.example.posapp.service.EmployeeGroupMembershipService;
 
@@ -34,9 +35,9 @@ import com.example.posapp.service.EmployeeGroupMembershipService;
  *       removes a membership and is idempotent: detaching a pair that is
  *       not attached returns 204 without an error.</li>
  *   <li>{@code GET /api/v1/employees/{employeeId}/groups} lists the
- *       employee's groups.</li>
+ *       employee's groups, one page at a time.</li>
  *   <li>{@code GET /api/v1/employee-groups/{groupId}/employees} lists the
- *       group's employees.</li>
+ *       group's employees, one page at a time.</li>
  * </ul>
  * Missing aggregates return 404 through the exceptions mapped by
  * {@link com.example.posapp.exception.ApiExceptionHandler}. Every route is
@@ -95,33 +96,43 @@ public class EmployeeGroupMembershipController {
 
     /**
      * List the employee groups an employee belongs to, within the caller's
-     * brand.
+     * brand, one page at a time.
      * @param employeeId the employee ID
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
      * @param principal the authenticated caller, whose brand scopes the request
-     * @return the groups attached to the employee
+     * @return the requested page of groups attached to the employee
      */
     @GetMapping("/api/v1/employees/{employeeId}/groups")
-    public List<EmployeeGroupResponse> listGroupsForEmployee(
+    public PageResponse<EmployeeGroupResponse> listGroupsForEmployee(
             @PathVariable Long employeeId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
             @AuthenticationPrincipal BackOfficePrincipal principal) {
-        return membershipService.listGroupsForEmployee(employeeId, principal.organizationId()).stream()
-                .map(EmployeeGroupResponse::from)
-                .toList();
+        return PageResponse.from(membershipService.listGroupsForEmployee(
+                        employeeId, principal.organizationId(),
+                        PageRequests.of(page, size).toPageable()))
+                .map(row -> EmployeeGroupResponse.from(row.getEmployeeGroup()));
     }
 
     /**
      * List the employees belonging to an employee group, within the
-     * caller's brand.
+     * caller's brand, one page at a time.
      * @param groupId the employee group ID
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
      * @param principal the authenticated caller, whose brand scopes the request
-     * @return the employees attached to the group
+     * @return the requested page of employees attached to the group
      */
     @GetMapping("/api/v1/employee-groups/{groupId}/employees")
-    public List<EmployeeResponse> listEmployeesForGroup(
+    public PageResponse<EmployeeResponse> listEmployeesForGroup(
             @PathVariable Long groupId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
             @AuthenticationPrincipal BackOfficePrincipal principal) {
-        return membershipService.listEmployeesForGroup(groupId, principal.organizationId()).stream()
-                .map(EmployeeResponse::from)
-                .toList();
+        return PageResponse.from(membershipService.listEmployeesForGroup(
+                        groupId, principal.organizationId(),
+                        PageRequests.of(page, size).toPageable()))
+                .map(row -> EmployeeResponse.from(row.getEmployee()));
     }
 }

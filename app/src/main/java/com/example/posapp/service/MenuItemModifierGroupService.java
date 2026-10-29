@@ -1,7 +1,7 @@
 package com.example.posapp.service;
 
-import java.util.List;
-
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.example.posapp.entity.MenuItem;
@@ -51,17 +51,19 @@ public class MenuItemModifierGroupService {
     }
 
     /**
-     * Return the modifier group assignments attached to a menu item,
-     * ordered by display position.
+     * Return the modifier group assignments attached to a menu item, ordered
+     * by display position, one page at a time.
      * @param menuItemId the menu item ID
-     * @return the ordered assignments (empty when the item has none)
+     * @param pageable the page to serve, sorted to break display-order ties
+     * @return the requested page of assignments (empty when the item has none)
      * @throws MenuItemNotFoundException if no menu item exists with the ID
      */
-    public List<MenuItemModifierGroupAssignment> listAssignments(Long menuItemId) {
+    public Page<MenuItemModifierGroupAssignment> listAssignments(Long menuItemId,
+                                                                Pageable pageable) {
         if (!menuItemRepo.existsById(menuItemId)) {
             throw new MenuItemNotFoundException(menuItemId);
         }
-        return assignmentRepo.findByMenuItemIdOrderByDisplayOrder(menuItemId);
+        return assignmentRepo.findByMenuItemIdOrderByDisplayOrder(menuItemId, pageable);
     }
 
     /**

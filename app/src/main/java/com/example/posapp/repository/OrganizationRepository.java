@@ -2,6 +2,8 @@ package com.example.posapp.repository;
 
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.example.posapp.entity.Organization;
@@ -15,6 +17,21 @@ import com.example.posapp.entity.Organization;
  * </p>
  */
 public interface OrganizationRepository extends JpaRepository<Organization, Long> {
+
+    /**
+     * Page through the organization with the given ID.
+     * <p>
+     * The brand-scoped listing holds exactly one row, but it still pages so
+     * that every list endpoint shares one contract: a page beyond the first
+     * is empty rather than an error, and the row count is reported. The
+     * {@code Is} suffix keeps this distinct from {@code CrudRepository}'s
+     * single-result {@code findById}.
+     * </p>
+     * @param id the organization ID
+     * @param pageable the page to serve
+     * @return the requested page, holding the organization only on page 0
+     */
+    Page<Organization> findByIdIs(Long id, Pageable pageable);
 
     /**
      * Find an organization by its unique name.

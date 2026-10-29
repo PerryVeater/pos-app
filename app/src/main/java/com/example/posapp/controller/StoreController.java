@@ -1,7 +1,5 @@
 package com.example.posapp.controller;
 
-import java.util.List;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -11,8 +9,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.example.posapp.dto.PageRequests;
+import com.example.posapp.dto.PageResponse;
 import com.example.posapp.dto.StoreRequest;
 import com.example.posapp.dto.StoreResponse;
 import com.example.posapp.entity.Store;
@@ -53,15 +54,21 @@ public class StoreController {
     }
 
     /**
-     * List the stores in the caller's brand.
+     * List the stores in the caller's brand, one page at a time.
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
      * @param principal the authenticated caller, whose brand scopes the request
-     * @return the stores of that brand as API responses
+     * @return the requested page of that brand's stores
      */
     @GetMapping
-    public List<StoreResponse> getStores(@AuthenticationPrincipal BackOfficePrincipal principal) {
-        return storeService.getAllStores(principal.organizationId()).stream()
-                .map(StoreResponse::from)
-                .toList();
+    public PageResponse<StoreResponse> getStores(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            @AuthenticationPrincipal BackOfficePrincipal principal) {
+        return PageResponse.from(
+                storeService.getAllStores(principal.organizationId(),
+                        PageRequests.of(page, size).toPageable()),
+                StoreResponse::from);
     }
 
     /**

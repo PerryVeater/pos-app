@@ -1,8 +1,9 @@
 package com.example.posapp.repository;
 
-import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.example.posapp.entity.EmployeeGroup;
@@ -21,21 +22,24 @@ import com.example.posapp.entity.EmployeeGroup;
 public interface EmployeeGroupRepository extends JpaRepository<EmployeeGroup, Long> {
 
     /**
-     * Find the direct child groups of the given group. Insertion order is
-     * not guaranteed; the foundation carries no per-sibling display
-     * attribute yet.
+     * Page through the direct child groups of the given group, ordered by
+     * primary key. The foundation carries no per-sibling display attribute
+     * yet, so the key order is the only one that pages without gaps.
      * @param parentId the parent group ID
-     * @return the child groups (possibly empty)
+     * @param pageable the page to serve
+     * @return the requested page of child groups
      */
-    List<EmployeeGroup> findByParentId(Long parentId);
+    Page<EmployeeGroup> findByParentId(Long parentId, Pageable pageable);
 
     /**
-     * Find the root groups owned by the given organization, i.e. the
-     * groups that have no parent group.
+     * Page through the root groups owned by the given organization, i.e.
+     * the groups that have no parent group.
      * @param organizationId the owning organization ID
-     * @return the root groups (possibly empty)
+     * @param pageable the page to serve
+     * @return the requested page of root groups
      */
-    List<EmployeeGroup> findByOrganizationIdAndParentIsNull(Long organizationId);
+    Page<EmployeeGroup> findByOrganizationIdAndParentIsNull(Long organizationId,
+                                                            Pageable pageable);
 
     /**
      * Count the direct child groups of the given group. Used by the
@@ -67,10 +71,11 @@ public interface EmployeeGroupRepository extends JpaRepository<EmployeeGroup, Lo
     Optional<EmployeeGroup> findByIdAndOrganizationId(Long id, Long organizationId);
 
     /**
-     * Find every group owned by the given organization, root and nested
-     * alike, for the brand-wide listing.
+     * Page through every group owned by the given organization, root and
+     * nested alike, for the brand-wide listing.
      * @param organizationId the brand the caller may act within
-     * @return the groups of that organization (possibly empty)
+     * @param pageable the page to serve
+     * @return the requested page of that organization's groups
      */
-    List<EmployeeGroup> findByOrganizationId(Long organizationId);
+    Page<EmployeeGroup> findByOrganizationId(Long organizationId, Pageable pageable);
 }

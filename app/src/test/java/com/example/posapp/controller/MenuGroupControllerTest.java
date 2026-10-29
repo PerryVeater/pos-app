@@ -23,6 +23,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -57,19 +59,22 @@ class MenuGroupControllerTest {
     // --- GET /api/v1/menu-groups ---
 
     @Test
-    @DisplayName("GET /api/v1/menu-groups returns every group as a JSON array")
+    @DisplayName("GET /api/v1/menu-groups returns one page of groups")
     void getMenuGroupsReturnsAll() throws Exception {
-        when(menuGroupService.getAllMenuGroups()).thenReturn(List.of(
+        when(menuGroupService.getAllMenuGroups(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(
                 new MenuGroup("Appetizers"),
-                new MenuGroup("Desserts")));
+                new MenuGroup("Desserts"))));
 
         mockMvc.perform(get("/api/v1/menu-groups"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Appetizers"))
-                .andExpect(jsonPath("$[0].active").value(true))
-                .andExpect(jsonPath("$[1].name").value("Desserts"));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Appetizers"))
+                .andExpect(jsonPath("$.content[0].active").value(true))
+                .andExpect(jsonPath("$.content[1].name").value("Desserts"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     // --- GET /api/v1/menu-groups/{id} ---
@@ -226,28 +231,30 @@ class MenuGroupControllerTest {
     // --- GET /api/v1/menu-groups/{id}/menu-items ---
 
     @Test
-    @DisplayName("GET /api/v1/menu-groups/{id}/menu-items returns assignments in display order")
+    @DisplayName("GET /api/v1/menu-groups/{id}/menu-items returns one page of assignments")
     void listMenuItemsReturnsOrdered() throws Exception {
         MenuGroup group = new MenuGroup("Appetizers");
         MenuItem cola = new MenuItem("Cola", "COLA-001", null, true);
         MenuItem fries = new MenuItem("Fries", "FRIES-001", null, true);
-        when(menuGroupService.listItemAssignments(1L)).thenReturn(java.util.List.of(
-                new MenuItemAssignment(group, cola, 1),
-                new MenuItemAssignment(group, fries, 2)));
+        when(menuGroupService.listItemAssignments(eq(1L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        new MenuItemAssignment(group, cola, 1),
+                        new MenuItemAssignment(group, fries, 2))));
 
         mockMvc.perform(get("/api/v1/menu-groups/1/menu-items"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].menuItemName").value("Cola"))
-                .andExpect(jsonPath("$[0].displayOrder").value(1))
-                .andExpect(jsonPath("$[1].menuItemName").value("Fries"))
-                .andExpect(jsonPath("$[1].displayOrder").value(2));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].menuItemName").value("Cola"))
+                .andExpect(jsonPath("$.content[0].displayOrder").value(1))
+                .andExpect(jsonPath("$.content[1].menuItemName").value("Fries"))
+                .andExpect(jsonPath("$.content[1].displayOrder").value(2));
     }
 
     @Test
     @DisplayName("GET /api/v1/menu-groups/{id}/menu-items returns 404 for a missing group")
     void listMenuItemsReturns404ForMissingGroup() throws Exception {
-        when(menuGroupService.listItemAssignments(99L)).thenThrow(new MenuGroupNotFoundException(99L));
+        when(menuGroupService.listItemAssignments(eq(99L), any(Pageable.class)))
+                .thenThrow(new MenuGroupNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/menu-groups/99/menu-items"))
                 .andExpect(status().isNotFound())

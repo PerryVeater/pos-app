@@ -14,6 +14,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -45,6 +47,12 @@ import com.example.posapp.entity.MenuItemAssignment;
 @SpringBootTest
 @Testcontainers
 class MenuRepositoryIntegrationTest {
+
+    /**
+     * A page large enough for every assignment the tests create, so a paged
+     * lookup can be asserted as one ordered list.
+     */
+    private static final Pageable ONE_PAGE = PageRequest.of(0, 100);
 
     /**
      * Disposable PostgreSQL 16 database; {@code @ServiceConnection} feeds its
@@ -225,10 +233,10 @@ class MenuRepositoryIntegrationTest {
         MenuGroupAssignment dinnerAssignment = assignmentRepository.save(
                 new MenuGroupAssignment(dinner, apps, 2));
 
-        assertThat(assignmentRepository.findByMenuIdOrderByDisplayOrder(lunch.getId()))
+        assertThat(assignmentRepository.findByMenuIdOrderByDisplayOrder(lunch.getId(), ONE_PAGE))
                 .extracting(assignment -> assignment.getMenuGroup().getId())
                 .containsExactly(apps.getId());
-        assertThat(assignmentRepository.findByMenuIdOrderByDisplayOrder(dinner.getId()))
+        assertThat(assignmentRepository.findByMenuIdOrderByDisplayOrder(dinner.getId(), ONE_PAGE))
                 .extracting(assignment -> assignment.getMenuGroup().getId())
                 .containsExactly(apps.getId());
         assertThat(lunchAssignment.getDisplayOrder()).isEqualTo(1);
@@ -251,7 +259,7 @@ class MenuRepositoryIntegrationTest {
         assignmentRepository.save(new MenuGroupAssignment(menu, third, 7));
         assignmentRepository.save(new MenuGroupAssignment(menu, first, 1));
 
-        assertThat(assignmentRepository.findByMenuIdOrderByDisplayOrder(menu.getId()))
+        assertThat(assignmentRepository.findByMenuIdOrderByDisplayOrder(menu.getId(), ONE_PAGE))
                 .extracting(assignment -> assignment.getMenuGroup().getName())
                 .containsExactly(
                         "Integration Order A",
@@ -277,8 +285,10 @@ class MenuRepositoryIntegrationTest {
 
         assignmentRepository.delete(lunchAssignment);
 
-        assertThat(assignmentRepository.findByMenuIdOrderByDisplayOrder(lunch.getId())).isEmpty();
-        assertThat(assignmentRepository.findByMenuIdOrderByDisplayOrder(dinner.getId())).hasSize(1);
+        assertThat(assignmentRepository.findByMenuIdOrderByDisplayOrder(lunch.getId(), ONE_PAGE))
+                .isEmpty();
+        assertThat(assignmentRepository.findByMenuIdOrderByDisplayOrder(dinner.getId(), ONE_PAGE))
+                .hasSize(1);
 
         deleteMenuCascade(dinner.getId());
         menuRepository.deleteById(lunch.getId());
@@ -378,10 +388,12 @@ class MenuRepositoryIntegrationTest {
         itemAssignmentRepository.save(new MenuItemAssignment(appetizers, cola, 1));
         itemAssignmentRepository.save(new MenuItemAssignment(kids, cola, 2));
 
-        assertThat(itemAssignmentRepository.findByMenuGroupIdOrderByDisplayOrder(appetizers.getId()))
+        assertThat(itemAssignmentRepository.findByMenuGroupIdOrderByDisplayOrder(
+                        appetizers.getId(), ONE_PAGE))
                 .extracting(assignment -> assignment.getMenuItem().getId())
                 .containsExactly(cola.getId());
-        assertThat(itemAssignmentRepository.findByMenuGroupIdOrderByDisplayOrder(kids.getId()))
+        assertThat(itemAssignmentRepository.findByMenuGroupIdOrderByDisplayOrder(
+                        kids.getId(), ONE_PAGE))
                 .extracting(assignment -> assignment.getMenuItem().getId())
                 .containsExactly(cola.getId());
 
@@ -405,7 +417,8 @@ class MenuRepositoryIntegrationTest {
         itemAssignmentRepository.save(new MenuItemAssignment(group, third, 7));
         itemAssignmentRepository.save(new MenuItemAssignment(group, first, 1));
 
-        assertThat(itemAssignmentRepository.findByMenuGroupIdOrderByDisplayOrder(group.getId()))
+        assertThat(itemAssignmentRepository.findByMenuGroupIdOrderByDisplayOrder(
+                        group.getId(), ONE_PAGE))
                 .extracting(assignment -> assignment.getMenuItem().getName())
                 .containsExactly("Integration A", "Integration B", "Integration C");
 
@@ -426,7 +439,8 @@ class MenuRepositoryIntegrationTest {
 
         itemAssignmentRepository.delete(assignment);
 
-        assertThat(itemAssignmentRepository.findByMenuGroupIdOrderByDisplayOrder(group.getId()))
+        assertThat(itemAssignmentRepository.findByMenuGroupIdOrderByDisplayOrder(
+                        group.getId(), ONE_PAGE))
                 .isEmpty();
         assertThat(menuItemRepository.findById(item.getId())).isPresent();
 

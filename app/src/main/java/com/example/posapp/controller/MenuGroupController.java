@@ -1,7 +1,5 @@
 package com.example.posapp.controller;
 
-import java.util.List;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -10,12 +8,15 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.posapp.dto.MenuItemAssignmentRequest;
 import com.example.posapp.dto.MenuItemAssignmentResponse;
 import com.example.posapp.dto.MenuGroupRequest;
 import com.example.posapp.dto.MenuGroupResponse;
+import com.example.posapp.dto.PageRequests;
+import com.example.posapp.dto.PageResponse;
 import com.example.posapp.entity.MenuGroup;
 import com.example.posapp.exception.MenuGroupNotFoundException;
 import com.example.posapp.service.MenuGroupService;
@@ -45,14 +46,18 @@ public class MenuGroupController {
     }
 
     /**
-     * List every menu group.
-     * @return all menu groups as API responses
+     * List every menu group, one page at a time.
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
+     * @return the requested page of menu groups as API responses
      */
     @GetMapping
-    public List<MenuGroupResponse> getMenuGroups() {
-        return menuGroupService.getAllMenuGroups().stream()
-                .map(MenuGroupResponse::from)
-                .toList();
+    public PageResponse<MenuGroupResponse> getMenuGroups(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return PageResponse.from(
+                menuGroupService.getAllMenuGroups(PageRequests.of(page, size).toPageable()),
+                MenuGroupResponse::from);
     }
 
     /**
@@ -106,15 +111,21 @@ public class MenuGroupController {
     }
 
     /**
-     * List the menu items assigned to a menu group, ordered by display position.
+     * List the menu items assigned to a menu group, in display order, one
+     * page at a time.
      * @param id the menu group ID
-     * @return the ordered assignments
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
+     * @return the requested page of assignments
      */
     @GetMapping("/{id}/menu-items")
-    public List<MenuItemAssignmentResponse> listMenuItems(@PathVariable Long id) {
-        return menuGroupService.listItemAssignments(id).stream()
-                .map(MenuItemAssignmentResponse::from)
-                .toList();
+    public PageResponse<MenuItemAssignmentResponse> listMenuItems(
+            @PathVariable Long id,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return PageResponse.from(menuGroupService.listItemAssignments(id,
+                        PageRequests.of(page, size).toPageable()),
+                MenuItemAssignmentResponse::from);
     }
 
     /**

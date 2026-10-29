@@ -1,9 +1,10 @@
 package com.example.posapp.service;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.example.posapp.entity.Employee;
@@ -173,12 +174,13 @@ public class EmployeeService {
     }
 
     /**
-     * Retrieve every employee in the caller's brand.
+     * Retrieve one page of the employees in the caller's brand.
      * @param brandId the organization the caller may act within
-     * @return the employees of that organization
+     * @param pageable the page to serve
+     * @return the requested page of that organization's employees
      */
-    public List<Employee> getAllEmployees(Long brandId) {
-        return employeeRepo.findByOrganizationId(brandId);
+    public Page<Employee> getAllEmployees(Long brandId, Pageable pageable) {
+        return employeeRepo.findByOrganizationId(brandId, pageable);
     }
 
     /**

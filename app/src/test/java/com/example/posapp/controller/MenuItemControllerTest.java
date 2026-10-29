@@ -26,6 +26,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -59,25 +61,25 @@ class MenuItemControllerTest {
     // --- GET /products ---
 
     @Test
-    @DisplayName("GET /products returns all menu items as a JSON array")
+    @DisplayName("GET /products returns one page of menu items")
     void getMenuItemsReturnsAll() throws Exception {
         MenuItem cola = new MenuItem("Cola", "COLA-001", new BigDecimal("2.50"), true);
         cola.setCategory(new Category("Beverages"));
-        when(menuItemService.getAllMenuItems()).thenReturn(List.of(
+        when(menuItemService.getAllMenuItems(any(Pageable.class))).thenReturn(new PageImpl<>(List.of(
                 cola,
-                new MenuItem("Fries", "FRIES-001", new BigDecimal("4.25"), false)));
+                new MenuItem("Fries", "FRIES-001", new BigDecimal("4.25"), false))));
 
         mockMvc.perform(get("/products"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Cola"))
-                .andExpect(jsonPath("$[0].sku").value("COLA-001"))
-                .andExpect(jsonPath("$[0].active").value(true))
-                .andExpect(jsonPath("$[0].categoryName").value("Beverages"))
-                .andExpect(jsonPath("$[1].price").value(4.25))
-                .andExpect(jsonPath("$[1].active").value(false))
-                .andExpect(jsonPath("$[1].categoryName").value(nullValue()));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Cola"))
+                .andExpect(jsonPath("$.content[0].sku").value("COLA-001"))
+                .andExpect(jsonPath("$.content[0].active").value(true))
+                .andExpect(jsonPath("$.content[0].categoryName").value("Beverages"))
+                .andExpect(jsonPath("$.content[1].price").value(4.25))
+                .andExpect(jsonPath("$.content[1].active").value(false))
+                .andExpect(jsonPath("$.content[1].categoryName").value(nullValue()));
     }
 
     // --- GET /products/{id} ---

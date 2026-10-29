@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -39,6 +41,12 @@ import com.example.posapp.entity.Store;
 @SpringBootTest
 @Testcontainers
 class OrganizationStoreRepositoryIntegrationTest {
+
+    /**
+     * A page large enough for every store the tests create, so a paged
+     * lookup can be asserted as one list.
+     */
+    private static final Pageable ONE_PAGE = PageRequest.of(0, 100);
 
     /**
      * Disposable PostgreSQL 16 database; {@code @ServiceConnection} feeds its
@@ -162,7 +170,7 @@ class OrganizationStoreRepositoryIntegrationTest {
         Store second = storeRepository.save(store(owner, "INT-STORE-NAME Downtown"));
 
         assertThat(first.getId()).isNotEqualTo(second.getId());
-        assertThat(storeRepository.findByOrganizationId(owner.getId()))
+        assertThat(storeRepository.findByOrganizationId(owner.getId(), ONE_PAGE))
                 .extracting(Store::getName)
                 .containsExactlyInAnyOrder("INT-STORE-NAME Downtown", "INT-STORE-NAME Downtown");
 
@@ -201,7 +209,7 @@ class OrganizationStoreRepositoryIntegrationTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
 
         // Cleanup
-        storeRepository.deleteAll(storeRepository.findByOrganizationId(owner.getId()));
+        storeRepository.deleteAll(storeRepository.findByOrganizationId(owner.getId(), ONE_PAGE));
         organizationRepository.deleteById(owner.getId());
     }
 
@@ -262,7 +270,7 @@ class OrganizationStoreRepositoryIntegrationTest {
 
         // Cleanup: the transactional test rolls back the organization anyway,
         // but be explicit that no store was persisted.
-        assertThat(storeRepository.findByOrganizationId(owner.getId())).isEmpty();
+        assertThat(storeRepository.findByOrganizationId(owner.getId(), ONE_PAGE)).isEmpty();
     }
 
     // --- FK enforcement ---
@@ -286,7 +294,7 @@ class OrganizationStoreRepositoryIntegrationTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
 
         // Cleanup: drop the store first so the organization can go away.
-        storeRepository.deleteAll(storeRepository.findByOrganizationId(owner.getId()));
+        storeRepository.deleteAll(storeRepository.findByOrganizationId(owner.getId(), ONE_PAGE));
         organizationRepository.deleteById(owner.getId());
         assertThat(organizationRepository.findById(owner.getId())).isEmpty();
     }
@@ -301,7 +309,8 @@ class OrganizationStoreRepositoryIntegrationTest {
         storeRepository.save(store(owner, "INT-STORE-MANY Airport"));
         storeRepository.save(store(owner, "INT-STORE-MANY Suburb"));
 
-        List<Store> owned = storeRepository.findByOrganizationId(owner.getId());
+        List<Store> owned = storeRepository.findByOrganizationId(owner.getId(), ONE_PAGE)
+                .getContent();
 
         assertThat(owned).hasSize(3)
                 .extracting(Store::getName)
@@ -324,8 +333,8 @@ class OrganizationStoreRepositoryIntegrationTest {
 
         Store reloaded = storeRepository.findById(downtown.getId()).orElseThrow();
         assertThat(reloaded.getOrganization().getId()).isEqualTo(globex.getId());
-        assertThat(storeRepository.findByOrganizationId(acme.getId())).isEmpty();
-        assertThat(storeRepository.findByOrganizationId(globex.getId()))
+        assertThat(storeRepository.findByOrganizationId(acme.getId(), ONE_PAGE)).isEmpty();
+        assertThat(storeRepository.findByOrganizationId(globex.getId(), ONE_PAGE))
                 .extracting(Store::getName)
                 .contains("INT-STORE-REPA Downtown");
 
@@ -346,7 +355,7 @@ class OrganizationStoreRepositoryIntegrationTest {
 
         assertThat(storeRepository.findById(doomed.getId())).isEmpty();
         assertThat(organizationRepository.findById(owner.getId())).isPresent();
-        assertThat(storeRepository.findByOrganizationId(owner.getId()))
+        assertThat(storeRepository.findByOrganizationId(owner.getId(), ONE_PAGE))
                 .extracting(Store::getId)
                 .containsExactly(keeper.getId());
 
@@ -368,8 +377,8 @@ class OrganizationStoreRepositoryIntegrationTest {
         assertThat(storeRepository.countByOrganizationId(other.getId())).isEqualTo(1L);
 
         // Cleanup
-        storeRepository.deleteAll(storeRepository.findByOrganizationId(owner.getId()));
-        storeRepository.deleteAll(storeRepository.findByOrganizationId(other.getId()));
+        storeRepository.deleteAll(storeRepository.findByOrganizationId(owner.getId(), ONE_PAGE));
+        storeRepository.deleteAll(storeRepository.findByOrganizationId(other.getId(), ONE_PAGE));
         organizationRepository.delete(owner);
         organizationRepository.delete(other);
     }

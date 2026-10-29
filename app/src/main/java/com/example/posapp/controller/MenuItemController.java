@@ -1,7 +1,5 @@
 package com.example.posapp.controller;
 
-import java.util.List;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -10,10 +8,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.posapp.dto.MenuItemRequest;
 import com.example.posapp.dto.MenuItemResponse;
+import com.example.posapp.dto.PageRequests;
+import com.example.posapp.dto.PageResponse;
 import com.example.posapp.service.MenuItemService;
 
 import jakarta.validation.Valid;
@@ -53,14 +54,18 @@ public class MenuItemController {
     }
 
     /**
-     * Get all menu items.
-     * @return a list of all menu items as API responses
+     * Get all menu items, one page at a time.
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
+     * @return the requested page of menu items as API responses
      */
     @GetMapping
-    public List<MenuItemResponse> getMenuItems() {
-        return menuItemService.getAllMenuItems().stream()
-                .map(MenuItemResponse::from)
-                .toList();
+    public PageResponse<MenuItemResponse> getMenuItems(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return PageResponse.from(
+                menuItemService.getAllMenuItems(PageRequests.of(page, size).toPageable()),
+                MenuItemResponse::from);
     }
 
     /**

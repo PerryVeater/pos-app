@@ -1,7 +1,5 @@
 package com.example.posapp.controller;
 
-import java.util.List;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -11,11 +9,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.posapp.dto.EmployeeGroupResponse;
 import com.example.posapp.dto.OrganizationRequest;
 import com.example.posapp.dto.OrganizationResponse;
+import com.example.posapp.dto.PageRequests;
+import com.example.posapp.dto.PageResponse;
 import com.example.posapp.dto.StoreResponse;
 import com.example.posapp.entity.Organization;
 import com.example.posapp.exception.OrganizationNotFoundException;
@@ -57,17 +58,22 @@ public class OrganizationController {
     }
 
     /**
-     * List organizations. The back office is scoped to one brand, so this
-     * returns the caller's organization alone.
+     * List organizations, one page at a time. The back office is scoped to
+     * one brand, so the first page holds the caller's organization alone.
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
      * @param principal the authenticated caller, whose brand scopes the request
-     * @return the caller's organization as an API response
+     * @return the requested page of the caller's organization
      */
     @GetMapping
-    public List<OrganizationResponse> getOrganizations(
+    public PageResponse<OrganizationResponse> getOrganizations(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
             @AuthenticationPrincipal BackOfficePrincipal principal) {
-        return organizationService.getAllOrganizations(principal.organizationId()).stream()
-                .map(OrganizationResponse::from)
-                .toList();
+        return PageResponse.from(
+                organizationService.getAllOrganizations(principal.organizationId(),
+                        PageRequests.of(page, size).toPageable()),
+                OrganizationResponse::from);
     }
 
     /**
@@ -141,32 +147,44 @@ public class OrganizationController {
     }
 
     /**
-     * List the stores owned by the caller's brand.
+     * List the stores owned by the caller's brand, one page at a time.
      * @param id the organization ID
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
      * @param principal the authenticated caller, whose brand scopes the request
-     * @return the stores owned by the organization
+     * @return the requested page of stores owned by the organization
      */
     @GetMapping("/{id}/stores")
-    public List<StoreResponse> listStores(@PathVariable Long id,
-                                          @AuthenticationPrincipal BackOfficePrincipal principal) {
-        return organizationService.listStores(id, principal.organizationId()).stream()
-                .map(StoreResponse::from)
-                .toList();
+    public PageResponse<StoreResponse> listStores(
+            @PathVariable Long id,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            @AuthenticationPrincipal BackOfficePrincipal principal) {
+        return PageResponse.from(
+                organizationService.listStores(id, principal.organizationId(),
+                        PageRequests.of(page, size).toPageable()),
+                StoreResponse::from);
     }
 
     /**
-     * List the root employee groups owned by the caller's brand. Child
-     * groups are exposed through {@code GET /api/v1/employee-groups/{id}/children}.
+     * List the root employee groups owned by the caller's brand, one page
+     * at a time. Child groups are exposed through
+     * {@code GET /api/v1/employee-groups/{id}/children}.
      * @param id the organization ID
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
      * @param principal the authenticated caller, whose brand scopes the request
-     * @return the root employee groups owned by the organization
+     * @return the requested page of root employee groups
      */
     @GetMapping("/{id}/employee-groups")
-    public List<EmployeeGroupResponse> listEmployeeGroups(
+    public PageResponse<EmployeeGroupResponse> listEmployeeGroups(
             @PathVariable Long id,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
             @AuthenticationPrincipal BackOfficePrincipal principal) {
-        return organizationService.listRootEmployeeGroups(id, principal.organizationId()).stream()
-                .map(EmployeeGroupResponse::from)
-                .toList();
+        return PageResponse.from(
+                organizationService.listRootEmployeeGroups(id, principal.organizationId(),
+                        PageRequests.of(page, size).toPageable()),
+                EmployeeGroupResponse::from);
     }
 }

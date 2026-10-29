@@ -5,6 +5,7 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,6 +21,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -61,26 +64,28 @@ class MenuItemModifierGroupControllerTest {
         MenuItem pizza = new MenuItem("Pizza", "PIZZA-1", new BigDecimal("9.99"), true);
         ModifierGroup toppings = new ModifierGroup("Toppings", 0, 3);
         ModifierGroup crusts = new ModifierGroup("Crusts", 1, 1);
-        when(assignmentService.listAssignments(1L)).thenReturn(List.of(
-                new MenuItemModifierGroupAssignment(pizza, toppings, 1),
-                new MenuItemModifierGroupAssignment(pizza, crusts, 2)));
+        when(assignmentService.listAssignments(any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        new MenuItemModifierGroupAssignment(pizza, toppings, 1),
+                        new MenuItemModifierGroupAssignment(pizza, crusts, 2))));
 
         mockMvc.perform(get("/api/v1/menu-items/1/modifier-groups"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].modifierGroupName").value("Toppings"))
-                .andExpect(jsonPath("$[0].minSelections").value(0))
-                .andExpect(jsonPath("$[0].maxSelections").value(3))
-                .andExpect(jsonPath("$[0].displayOrder").value(1))
-                .andExpect(jsonPath("$[1].modifierGroupName").value("Crusts"))
-                .andExpect(jsonPath("$[1].displayOrder").value(2));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].modifierGroupName").value("Toppings"))
+                .andExpect(jsonPath("$.content[0].minSelections").value(0))
+                .andExpect(jsonPath("$.content[0].maxSelections").value(3))
+                .andExpect(jsonPath("$.content[0].displayOrder").value(1))
+                .andExpect(jsonPath("$.content[1].modifierGroupName").value("Crusts"))
+                .andExpect(jsonPath("$.content[1].displayOrder").value(2));
     }
 
     @Test
     @DisplayName("GET /api/v1/menu-items/{id}/modifier-groups returns 404 for a missing item")
     void listModifierGroupsReturns404ForMissingItem() throws Exception {
-        when(assignmentService.listAssignments(99L)).thenThrow(new MenuItemNotFoundException(99L));
+        when(assignmentService.listAssignments(any(), any(Pageable.class)))
+                .thenThrow(new MenuItemNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/menu-items/99/modifier-groups"))
                 .andExpect(status().isNotFound())

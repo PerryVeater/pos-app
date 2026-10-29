@@ -1,8 +1,9 @@
 package com.example.posapp.repository;
 
-import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.example.posapp.entity.EmployeeGroupMembership;
@@ -45,20 +46,22 @@ public interface EmployeeGroupMembershipRepository
     boolean existsByEmployeeIdAndEmployeeGroupId(Long employeeId, Long employeeGroupId);
 
     /**
-     * List every membership for the given employee, used to expose the
+     * Page through the memberships of the given employee, used to expose the
      * groups the employee belongs to.
      * @param employeeId the employee ID
-     * @return the memberships (possibly empty)
+     * @param pageable the page to serve
+     * @return the requested page of memberships
      */
-    List<EmployeeGroupMembership> findByEmployeeId(Long employeeId);
+    Page<EmployeeGroupMembership> findByEmployeeId(Long employeeId, Pageable pageable);
 
     /**
-     * List every membership for the given employee group, used to expose
-     * the members of the group.
+     * Page through the memberships of the given employee group, used to
+     * expose the members of the group.
      * @param employeeGroupId the employee group ID
-     * @return the memberships (possibly empty)
+     * @param pageable the page to serve
+     * @return the requested page of memberships
      */
-    List<EmployeeGroupMembership> findByEmployeeGroupId(Long employeeGroupId);
+    Page<EmployeeGroupMembership> findByEmployeeGroupId(Long employeeGroupId, Pageable pageable);
 
     /**
      * Count memberships referencing the given employee. Used by the

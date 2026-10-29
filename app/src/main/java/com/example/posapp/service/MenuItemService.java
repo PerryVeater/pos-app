@@ -1,8 +1,10 @@
 package com.example.posapp.service;
 
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.Optional;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import com.example.posapp.entity.Category;
 import com.example.posapp.entity.MenuItem;
@@ -144,12 +146,13 @@ public class MenuItemService {
     }    
 
     /**
-     * Retrieve all {@link MenuItem}s from the repository.
+     * Retrieve a page of {@link MenuItem}s from the repository.
      *
-     * @return a list of all {@link MenuItem}s
+     * @param pageable the page to serve
+     * @return the requested page of {@link MenuItem}s
      */
-    public List<MenuItem> getAllMenuItems() {
-        return menuItemRepo.findAll();
+    public Page<MenuItem> getAllMenuItems(Pageable pageable) {
+        return menuItemRepo.findAll(pageable);
     }
 
     /**

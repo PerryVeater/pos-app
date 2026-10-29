@@ -5,8 +5,11 @@ import java.util.List;
 import static com.example.posapp.controller.BrandScopeTestSupport.BRAND_ID;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -24,12 +27,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.example.posapp.entity.Employee;
 import com.example.posapp.entity.EmployeeGroup;
+import com.example.posapp.entity.EmployeeGroupMembership;
 import com.example.posapp.exception.EmployeeGroupNotFoundException;
 import com.example.posapp.exception.EmployeeNotFoundException;
 import com.example.posapp.service.EmployeeGroupMembershipService;
@@ -196,33 +202,42 @@ class EmployeeGroupMembershipControllerTest {
     // --- GET /api/v1/employees/{employeeId}/groups ---
 
     @Test
-    @DisplayName("GET /api/v1/employees/{id}/groups returns the employee's groups")
+    @DisplayName("GET /api/v1/employees/{id}/groups returns one page of the employee's groups")
     void listGroupsForEmployeeReturnsList() throws Exception {
-        when(membershipService.listGroupsForEmployee(1L, BRAND_ID))
-                .thenReturn(List.of(group("Front of House"), group("Baristas")));
+        EmployeeGroupMembership front = mock(EmployeeGroupMembership.class);
+        when(front.getEmployeeGroup()).thenReturn(group("Front of House"));
+        EmployeeGroupMembership baristas = mock(EmployeeGroupMembership.class);
+        when(baristas.getEmployeeGroup()).thenReturn(group("Baristas"));
+        when(membershipService.listGroupsForEmployee(eq(1L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(front, baristas)));
 
         mockMvc.perform(get("/api/v1/employees/1/groups"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Front of House"))
-                .andExpect(jsonPath("$[1].name").value("Baristas"));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Front of House"))
+                .andExpect(jsonPath("$.content[1].name").value("Baristas"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     @Test
-    @DisplayName("GET /api/v1/employees/{id}/groups returns an empty array when the employee has no memberships")
+    @DisplayName("GET /api/v1/employees/{id}/groups returns an empty page when the employee has no memberships")
     void listGroupsForEmployeeEmptyReturnsEmptyArray() throws Exception {
-        when(membershipService.listGroupsForEmployee(1L, BRAND_ID)).thenReturn(List.of());
+        when(membershipService.listGroupsForEmployee(eq(1L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/employees/1/groups"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(0)));
+                .andExpect(jsonPath("$.content", hasSize(0)))
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     @Test
     @DisplayName("GET /api/v1/employees/{id}/groups returns 404 when the employee is missing")
     void listGroupsForEmployeeMissingReturns404() throws Exception {
-        when(membershipService.listGroupsForEmployee(99L, BRAND_ID))
+        when(membershipService.listGroupsForEmployee(eq(99L), eq(BRAND_ID), any(Pageable.class)))
                 .thenThrow(new EmployeeNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/employees/99/groups"))
@@ -234,33 +249,42 @@ class EmployeeGroupMembershipControllerTest {
     // --- GET /api/v1/employee-groups/{groupId}/employees ---
 
     @Test
-    @DisplayName("GET /api/v1/employee-groups/{id}/employees returns the group's members")
+    @DisplayName("GET /api/v1/employee-groups/{id}/employees returns one page of members")
     void listEmployeesForGroupReturnsList() throws Exception {
-        when(membershipService.listEmployeesForGroup(2L, BRAND_ID))
-                .thenReturn(List.of(employee("Ada"), employee("Grace")));
+        EmployeeGroupMembership ada = mock(EmployeeGroupMembership.class);
+        when(ada.getEmployee()).thenReturn(employee("Ada"));
+        EmployeeGroupMembership grace = mock(EmployeeGroupMembership.class);
+        when(grace.getEmployee()).thenReturn(employee("Grace"));
+        when(membershipService.listEmployeesForGroup(eq(2L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(ada, grace)));
 
         mockMvc.perform(get("/api/v1/employee-groups/2/employees"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Ada"))
-                .andExpect(jsonPath("$[1].name").value("Grace"));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Ada"))
+                .andExpect(jsonPath("$.content[1].name").value("Grace"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     @Test
-    @DisplayName("GET /api/v1/employee-groups/{id}/employees returns an empty array when the group has no members")
+    @DisplayName("GET /api/v1/employee-groups/{id}/employees returns an empty page when the group has no members")
     void listEmployeesForGroupEmptyReturnsEmptyArray() throws Exception {
-        when(membershipService.listEmployeesForGroup(2L, BRAND_ID)).thenReturn(List.of());
+        when(membershipService.listEmployeesForGroup(eq(2L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/employee-groups/2/employees"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(0)));
+                .andExpect(jsonPath("$.content", hasSize(0)))
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     @Test
     @DisplayName("GET /api/v1/employee-groups/{id}/employees returns 404 when the group is missing")
     void listEmployeesForGroupMissingReturns404() throws Exception {
-        when(membershipService.listEmployeesForGroup(99L, BRAND_ID))
+        when(membershipService.listEmployeesForGroup(eq(99L), eq(BRAND_ID), any(Pageable.class)))
                 .thenThrow(new EmployeeGroupNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/employee-groups/99/employees"))

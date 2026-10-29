@@ -2,6 +2,7 @@ package com.example.posapp.controller;
 
 import java.util.List;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -10,13 +11,17 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.posapp.dto.ModifierAssignmentRequest;
 import com.example.posapp.dto.ModifierAssignmentResponse;
 import com.example.posapp.dto.ModifierGroupRequest;
 import com.example.posapp.dto.ModifierGroupResponse;
+import com.example.posapp.dto.PageRequests;
+import com.example.posapp.dto.PageResponse;
 import com.example.posapp.entity.ModifierGroup;
+import com.example.posapp.entity.ModifierGroupAssignment;
 import com.example.posapp.exception.ModifierGroupNotFoundException;
 import com.example.posapp.service.ModifierGroupService;
 
@@ -46,16 +51,20 @@ public class ModifierGroupController {
     }
 
     /**
-     * List all modifier groups. Assignments are returned empty in the
-     * collection view to avoid an N+1 query; use
+     * List all modifier groups, one page at a time. Assignments are returned
+     * empty in the collection view to avoid an N+1 query; use
      * {@code GET /api/v1/modifier-groups/{id}} for the full detail.
-     * @return every modifier group as an API response
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
+     * @return the requested page of modifier groups as API responses
      */
     @GetMapping
-    public List<ModifierGroupResponse> getModifierGroups() {
-        return modifierGroupService.getAllModifierGroups().stream()
-                .map(group -> ModifierGroupResponse.from(group, List.of()))
-                .toList();
+    public PageResponse<ModifierGroupResponse> getModifierGroups(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return PageResponse.from(
+                modifierGroupService.getAllModifierGroups(PageRequests.of(page, size).toPageable()),
+                group -> ModifierGroupResponse.from(group, List.of()));
     }
 
     /**
@@ -70,7 +79,7 @@ public class ModifierGroupController {
         ModifierGroup group = modifierGroupService.getModifierGroupById(id)
                 .orElseThrow(() -> new ModifierGroupNotFoundException(id));
         return ResponseEntity.ok(ModifierGroupResponse.from(
-                group, modifierGroupService.listModifierAssignments(id)));
+                group, allModifierAssignments(id)));
     }
 
     /**
@@ -96,7 +105,7 @@ public class ModifierGroupController {
             @PathVariable Long id,
             @Valid @RequestBody ModifierGroupRequest request) {
         ModifierGroup updated = modifierGroupService.updateModifierGroup(id, request.toEntity());
-        return ModifierGroupResponse.from(updated, modifierGroupService.listModifierAssignments(id));
+        return ModifierGroupResponse.from(updated, allModifierAssignments(id));
     }
 
     /**
@@ -112,15 +121,22 @@ public class ModifierGroupController {
     }
 
     /**
-     * List the modifiers assigned to a group, ordered by display position.
+     * List the modifiers assigned to a group, in display order, one page at
+     * a time.
      * @param id the modifier group ID
-     * @return the ordered assignments
+     * @param page the zero-based page to serve, or null for the first
+     * @param size the requested page size, or null for the default
+     * @return the requested page of assignments
      */
     @GetMapping("/{id}/modifiers")
-    public List<ModifierAssignmentResponse> listModifiers(@PathVariable Long id) {
-        return modifierGroupService.listModifierAssignments(id).stream()
-                .map(ModifierAssignmentResponse::from)
-                .toList();
+    public PageResponse<ModifierAssignmentResponse> listModifiers(
+            @PathVariable Long id,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        return PageResponse.from(
+                modifierGroupService.listModifierAssignments(id,
+                        PageRequests.of(page, size).toPageable()),
+                ModifierAssignmentResponse::from);
     }
 
     /**
@@ -149,5 +165,17 @@ public class ModifierGroupController {
             @PathVariable Long modifierId) {
         modifierGroupService.unassignModifier(id, modifierId);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Read a group's full assignment list for the detail view. The detail is
+     * a single aggregate's children rather than a list endpoint, so it is
+     * deliberately not paged.
+     * @param modifierGroupId the modifier group ID
+     * @return every assignment, in display order
+     */
+    private List<ModifierGroupAssignment> allModifierAssignments(Long modifierGroupId) {
+        return modifierGroupService.listModifierAssignments(modifierGroupId, Pageable.unpaged())
+                .getContent();
     }
 }

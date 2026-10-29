@@ -1,10 +1,11 @@
 package com.example.posapp.service;
 
 import java.util.HashSet;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.example.posapp.entity.EmployeeGroup;
@@ -142,12 +143,13 @@ public class EmployeeGroupService {
     }
 
     /**
-     * Retrieve every employee group in the caller's brand.
+     * Retrieve one page of the employee groups in the caller's brand.
      * @param brandId the organization the caller may act within
-     * @return the employee groups of that organization
+     * @param pageable the page to serve
+     * @return the requested page of that organization's employee groups
      */
-    public List<EmployeeGroup> getAllEmployeeGroups(Long brandId) {
-        return employeeGroupRepo.findByOrganizationId(brandId);
+    public Page<EmployeeGroup> getAllEmployeeGroups(Long brandId, Pageable pageable) {
+        return employeeGroupRepo.findByOrganizationId(brandId, pageable);
     }
 
     /**
@@ -165,19 +167,20 @@ public class EmployeeGroupService {
     }
 
     /**
-     * Return the direct child groups of an employee group, within the
-     * caller's brand.
+     * Return one page of the direct child groups of an employee group,
+     * within the caller's brand.
      * @param parentId the parent group ID
      * @param brandId the organization the caller may act within
-     * @return the child groups (empty when the parent has none)
+     * @param pageable the page to serve
+     * @return the requested page of child groups
      * @throws EmployeeGroupNotFoundException if no group exists with the ID
      *         in the brand
      */
-    public List<EmployeeGroup> listChildGroups(Long parentId, Long brandId) {
+    public Page<EmployeeGroup> listChildGroups(Long parentId, Long brandId, Pageable pageable) {
         if (employeeGroupRepo.findByIdAndOrganizationId(parentId, brandId).isEmpty()) {
             throw new EmployeeGroupNotFoundException(parentId);
         }
-        return employeeGroupRepo.findByParentId(parentId);
+        return employeeGroupRepo.findByParentId(parentId, pageable);
     }
 
     /**

@@ -27,6 +27,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -80,30 +82,35 @@ class EmployeeGroupControllerTest {
     // --- GET /api/v1/employee-groups ---
 
     @Test
-    @DisplayName("GET /api/v1/employee-groups returns an empty list")
+    @DisplayName("GET /api/v1/employee-groups returns an empty page")
     void listEmployeeGroupsEmpty() throws Exception {
-        when(employeeGroupService.getAllEmployeeGroups(BRAND_ID)).thenReturn(List.of());
+        when(employeeGroupService.getAllEmployeeGroups(eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/employee-groups"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", hasSize(0)));
+                .andExpect(jsonPath("$.content", hasSize(0)));
 
-        verify(employeeGroupService).getAllEmployeeGroups(BRAND_ID);
+        verify(employeeGroupService).getAllEmployeeGroups(eq(BRAND_ID), any(Pageable.class));
     }
 
     @Test
-    @DisplayName("GET /api/v1/employee-groups returns every group without embedding children")
+    @DisplayName("GET /api/v1/employee-groups returns one page of groups without children")
     void listEmployeeGroupsReturnsAll() throws Exception {
-        when(employeeGroupService.getAllEmployeeGroups(BRAND_ID))
-                .thenReturn(List.of(group("Front of House"), group("Back of House")));
+        when(employeeGroupService.getAllEmployeeGroups(eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        group("Front of House"), group("Back of House"))));
 
         mockMvc.perform(get("/api/v1/employee-groups"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Front of House"))
-                .andExpect(jsonPath("$[1].name").value("Back of House"))
-                .andExpect(jsonPath("$[0].children").doesNotExist());
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Front of House"))
+                .andExpect(jsonPath("$.content[1].name").value("Back of House"))
+                .andExpect(jsonPath("$.content[0].children").doesNotExist())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     // --- GET /api/v1/employee-groups/{id} ---
@@ -352,32 +359,34 @@ class EmployeeGroupControllerTest {
     // --- GET /api/v1/employee-groups/{id}/children ---
 
     @Test
-    @DisplayName("GET /api/v1/employee-groups/{id}/children returns the direct children")
+    @DisplayName("GET /api/v1/employee-groups/{id}/children returns one page of children")
     void listChildrenReturnsChildren() throws Exception {
-        when(employeeGroupService.listChildGroups(1L, BRAND_ID))
-                .thenReturn(List.of(group("Cashiers"), group("Hosts")));
+        when(employeeGroupService.listChildGroups(eq(1L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(group("Cashiers"), group("Hosts"))));
 
         mockMvc.perform(get("/api/v1/employee-groups/1/children"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Cashiers"))
-                .andExpect(jsonPath("$[1].name").value("Hosts"));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Cashiers"))
+                .andExpect(jsonPath("$.content[1].name").value("Hosts"));
     }
 
     @Test
-    @DisplayName("GET /api/v1/employee-groups/{id}/children returns an empty array for a leaf group")
+    @DisplayName("GET /api/v1/employee-groups/{id}/children returns an empty page for a leaf group")
     void listChildrenEmptyReturnsEmptyArray() throws Exception {
-        when(employeeGroupService.listChildGroups(1L, BRAND_ID)).thenReturn(List.of());
+        when(employeeGroupService.listChildGroups(eq(1L), eq(BRAND_ID), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/v1/employee-groups/1/children"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(0)));
+                .andExpect(jsonPath("$.content", hasSize(0)))
+                .andExpect(jsonPath("$.totalElements").value(0));
     }
 
     @Test
     @DisplayName("GET /api/v1/employee-groups/{id}/children returns 404 when the parent is missing")
     void listChildrenMissingParentReturns404() throws Exception {
-        when(employeeGroupService.listChildGroups(99L, BRAND_ID))
+        when(employeeGroupService.listChildGroups(eq(99L), eq(BRAND_ID), any(Pageable.class)))
                 .thenThrow(new EmployeeGroupNotFoundException(99L));
 
         mockMvc.perform(get("/api/v1/employee-groups/99/children"))

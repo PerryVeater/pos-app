@@ -1,9 +1,10 @@
 package com.example.posapp.service;
 
 import java.time.Instant;
-import java.util.List;
 
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -267,35 +268,39 @@ public class EmployeeStoreAssignmentService {
     }
 
     /**
-     * List the stores an employee is assigned to, within the caller's brand.
+     * Page through the assignments of an employee, within the caller's
+     * brand. The rows are assignments rather than stores so that the page
+     * carries an exact total; the endpoint exposes the store on each row.
      * @param employeeId the employee ID
      * @param brandId the organization the caller may act within
-     * @return the stores the employee is assigned to (empty when none)
+     * @param pageable the page to serve
+     * @return the requested page of assignments
      * @throws EmployeeNotFoundException if the employee does not exist in
      *         the brand
      */
-    public List<Store> listStoresForEmployee(Long employeeId, Long brandId) {
+    public Page<EmployeeStoreAssignment> listStoresForEmployee(Long employeeId, Long brandId,
+                                                              Pageable pageable) {
         if (employeeRepo.findByIdAndOrganizationId(employeeId, brandId).isEmpty()) {
             throw new EmployeeNotFoundException(employeeId);
         }
-        return assignmentRepo.findByEmployeeId(employeeId).stream()
-                .map(EmployeeStoreAssignment::getStore)
-                .toList();
+        return assignmentRepo.findByEmployeeId(employeeId, pageable);
     }
 
     /**
-     * List the employees assigned to a store, within the caller's brand.
+     * Page through the assignments of a store, within the caller's brand.
+     * The rows are assignments rather than employees so that the page
+     * carries an exact total; the endpoint exposes the employee on each row.
      * @param storeId the store ID
      * @param brandId the organization the caller may act within
-     * @return the employees assigned to the store (empty when none)
+     * @param pageable the page to serve
+     * @return the requested page of assignments
      * @throws StoreNotFoundException if the store does not exist in the brand
      */
-    public List<Employee> listEmployeesForStore(Long storeId, Long brandId) {
+    public Page<EmployeeStoreAssignment> listEmployeesForStore(Long storeId, Long brandId,
+                                                              Pageable pageable) {
         if (storeRepo.findByIdAndOrganizationId(storeId, brandId).isEmpty()) {
             throw new StoreNotFoundException(storeId);
         }
-        return assignmentRepo.findByStoreId(storeId).stream()
-                .map(EmployeeStoreAssignment::getEmployee)
-                .toList();
+        return assignmentRepo.findByStoreId(storeId, pageable);
     }
 }

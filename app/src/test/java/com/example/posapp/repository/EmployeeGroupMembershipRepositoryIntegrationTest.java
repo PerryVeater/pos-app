@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -39,6 +41,12 @@ import com.example.posapp.entity.Organization;
 @SpringBootTest
 @Testcontainers
 class EmployeeGroupMembershipRepositoryIntegrationTest {
+
+    /**
+     * A page large enough for every membership the tests create, so a paged
+     * lookup can be asserted as one list.
+     */
+    private static final Pageable ONE_PAGE = PageRequest.of(0, 100);
 
     /**
      * Disposable PostgreSQL 16 database; {@code @ServiceConnection} feeds
@@ -207,7 +215,8 @@ class EmployeeGroupMembershipRepositoryIntegrationTest {
                                 .contains("uk_employee_group_membership"));
 
         // Cleanup
-        membershipRepository.deleteAll(membershipRepository.findByEmployeeId(employee.getId()));
+        membershipRepository.deleteAll(
+                membershipRepository.findByEmployeeId(employee.getId(), ONE_PAGE));
         employeeRepository.deleteById(employee.getId());
         employeeGroupRepository.deleteById(group.getId());
         organizationRepository.deleteById(owner.getId());
@@ -388,13 +397,13 @@ class EmployeeGroupMembershipRepositoryIntegrationTest {
         EmployeeGroupMembership secondFront = membershipRepository.save(
                 new EmployeeGroupMembership(second, frontOfHouse));
 
-        assertThat(membershipRepository.findByEmployeeId(first.getId()))
+        assertThat(membershipRepository.findByEmployeeId(first.getId(), ONE_PAGE))
                 .extracting(EmployeeGroupMembership::getId)
                 .containsExactlyInAnyOrder(firstFront.getId(), firstBar.getId());
-        assertThat(membershipRepository.findByEmployeeGroupId(frontOfHouse.getId()))
+        assertThat(membershipRepository.findByEmployeeGroupId(frontOfHouse.getId(), ONE_PAGE))
                 .extracting(EmployeeGroupMembership::getId)
                 .containsExactlyInAnyOrder(firstFront.getId(), secondFront.getId());
-        assertThat(membershipRepository.findByEmployeeGroupId(baristas.getId()))
+        assertThat(membershipRepository.findByEmployeeGroupId(baristas.getId(), ONE_PAGE))
                 .extracting(EmployeeGroupMembership::getId)
                 .containsExactly(firstBar.getId());
 

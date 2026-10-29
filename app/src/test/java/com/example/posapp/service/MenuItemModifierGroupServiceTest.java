@@ -17,6 +17,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import com.example.posapp.entity.MenuItem;
 import com.example.posapp.entity.MenuItemModifierGroupAssignment;
@@ -71,24 +75,27 @@ class MenuItemModifierGroupServiceTest {
         ModifierGroup toppings = group("Toppings", 0, 3);
         ModifierGroup crusts = group("Crusts", 1, 1);
         when(menuItemRepo.existsById(1L)).thenReturn(true);
-        when(assignmentRepo.findByMenuItemIdOrderByDisplayOrder(1L)).thenReturn(List.of(
-                new MenuItemModifierGroupAssignment(item, toppings, 1),
-                new MenuItemModifierGroupAssignment(item, crusts, 2)));
+        when(assignmentRepo.findByMenuItemIdOrderByDisplayOrder(any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        new MenuItemModifierGroupAssignment(item, toppings, 1),
+                        new MenuItemModifierGroupAssignment(item, crusts, 2))));
 
-        List<MenuItemModifierGroupAssignment> result = service.listAssignments(1L);
+        Page<MenuItemModifierGroupAssignment> result = service.listAssignments(
+                1L, PageRequest.of(0, 25));
 
         assertThat(result).hasSize(2);
-        assertThat(result.get(0).getModifierGroup().getName()).isEqualTo("Toppings");
-        assertThat(result.get(1).getModifierGroup().getName()).isEqualTo("Crusts");
+        assertThat(result.getContent().get(0).getModifierGroup().getName()).isEqualTo("Toppings");
+        assertThat(result.getContent().get(1).getModifierGroup().getName()).isEqualTo("Crusts");
     }
 
     @Test
     @DisplayName("listAssignments: empty list when the item has no assignments")
     void listAssignmentsReturnsEmptyWhenNone() {
         when(menuItemRepo.existsById(1L)).thenReturn(true);
-        when(assignmentRepo.findByMenuItemIdOrderByDisplayOrder(1L)).thenReturn(List.of());
+        when(assignmentRepo.findByMenuItemIdOrderByDisplayOrder(any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
-        assertThat(service.listAssignments(1L)).isEmpty();
+        assertThat(service.listAssignments(1L, PageRequest.of(0, 25))).isEmpty();
     }
 
     @Test
@@ -96,7 +103,7 @@ class MenuItemModifierGroupServiceTest {
     void listAssignmentsThrowsForMissingItem() {
         when(menuItemRepo.existsById(99L)).thenReturn(false);
 
-        assertThatThrownBy(() -> service.listAssignments(99L))
+        assertThatThrownBy(() -> service.listAssignments(99L, PageRequest.of(0, 25)))
                 .isInstanceOf(MenuItemNotFoundException.class);
     }
 

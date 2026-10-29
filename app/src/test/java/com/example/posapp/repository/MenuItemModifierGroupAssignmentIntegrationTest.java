@@ -13,6 +13,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -38,6 +40,12 @@ import com.example.posapp.entity.ModifierGroup;
 @SpringBootTest
 @Testcontainers
 class MenuItemModifierGroupAssignmentIntegrationTest {
+
+    /**
+     * A page large enough for every assignment the tests create, so a paged
+     * lookup can be asserted as one ordered list.
+     */
+    private static final Pageable ONE_PAGE = PageRequest.of(0, 100);
 
     /**
      * Disposable PostgreSQL 16 database; {@code @ServiceConnection} feeds its
@@ -165,10 +173,10 @@ class MenuItemModifierGroupAssignmentIntegrationTest {
         MenuItemModifierGroupAssignment pastaAssignment = assignmentRepository.save(
                 new MenuItemModifierGroupAssignment(pasta, toppings, 2));
 
-        assertThat(assignmentRepository.findByMenuItemIdOrderByDisplayOrder(pizza.getId()))
+        assertThat(assignmentRepository.findByMenuItemIdOrderByDisplayOrder(pizza.getId(), ONE_PAGE))
                 .extracting(assignment -> assignment.getModifierGroup().getId())
                 .containsExactly(toppings.getId());
-        assertThat(assignmentRepository.findByMenuItemIdOrderByDisplayOrder(pasta.getId()))
+        assertThat(assignmentRepository.findByMenuItemIdOrderByDisplayOrder(pasta.getId(), ONE_PAGE))
                 .extracting(assignment -> assignment.getModifierGroup().getId())
                 .containsExactly(toppings.getId());
         assertThat(pizzaAssignment.getDisplayOrder()).isEqualTo(1);
@@ -194,7 +202,7 @@ class MenuItemModifierGroupAssignmentIntegrationTest {
         assignmentRepository.save(new MenuItemModifierGroupAssignment(item, third, 7));
         assignmentRepository.save(new MenuItemModifierGroupAssignment(item, first, 1));
 
-        assertThat(assignmentRepository.findByMenuItemIdOrderByDisplayOrder(item.getId()))
+        assertThat(assignmentRepository.findByMenuItemIdOrderByDisplayOrder(item.getId(), ONE_PAGE))
                 .extracting(assignment -> assignment.getModifierGroup().getName())
                 .containsExactly(
                         "INT-MIMG Order A",
@@ -219,7 +227,8 @@ class MenuItemModifierGroupAssignmentIntegrationTest {
 
         assignmentRepository.delete(assignment);
 
-        assertThat(assignmentRepository.findByMenuItemIdOrderByDisplayOrder(item.getId())).isEmpty();
+        assertThat(assignmentRepository.findByMenuItemIdOrderByDisplayOrder(item.getId(), ONE_PAGE))
+                .isEmpty();
         assertThat(menuItemRepository.findById(item.getId())).isPresent();
         assertThat(modifierGroupRepository.findById(group.getId())).isPresent();
 
@@ -242,8 +251,10 @@ class MenuItemModifierGroupAssignmentIntegrationTest {
 
         assignmentRepository.delete(pizzaAssignment);
 
-        assertThat(assignmentRepository.findByMenuItemIdOrderByDisplayOrder(pizza.getId())).isEmpty();
-        assertThat(assignmentRepository.findByMenuItemIdOrderByDisplayOrder(pasta.getId())).hasSize(1);
+        assertThat(assignmentRepository.findByMenuItemIdOrderByDisplayOrder(pizza.getId(), ONE_PAGE))
+                .isEmpty();
+        assertThat(assignmentRepository.findByMenuItemIdOrderByDisplayOrder(pasta.getId(), ONE_PAGE))
+                .hasSize(1);
 
         deleteMenuItemModifierGroups(pizza.getId());
         deleteMenuItemModifierGroups(pasta.getId());

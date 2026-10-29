@@ -6,6 +6,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -16,6 +17,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import com.example.posapp.entity.Employee;
 import com.example.posapp.entity.Organization;
@@ -464,15 +469,15 @@ class EmployeeServiceTest {
     @Test
     @DisplayName("getAllEmployees: asks only for the caller's brand")
     void getAllEmployeesReturnsBrandsEmployees() {
-        when(employeeRepo.findByOrganizationId(BRAND))
-                .thenReturn(List.of(employee("Ada"), employee("Grace")));
+        when(employeeRepo.findByOrganizationId(eq(BRAND), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(employee("Ada"), employee("Grace"))));
 
-        List<Employee> all = employeeService.getAllEmployees(BRAND);
+        Page<Employee> all = employeeService.getAllEmployees(BRAND, PageRequest.of(0, 25));
 
         assertThat(all).hasSize(2)
                 .extracting(Employee::getName)
                 .containsExactly("Ada", "Grace");
-        verify(employeeRepo).findByOrganizationId(BRAND);
+        verify(employeeRepo).findByOrganizationId(eq(BRAND), any(Pageable.class));
         verify(employeeRepo, never()).findAll();
     }
 

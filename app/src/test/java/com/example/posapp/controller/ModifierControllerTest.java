@@ -24,6 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -55,20 +57,24 @@ class ModifierControllerTest {
     // --- GET /api/v1/modifiers ---
 
     @Test
-    @DisplayName("GET /api/v1/modifiers returns every modifier as a JSON array")
+    @DisplayName("GET /api/v1/modifiers returns one page of modifiers")
     void getModifiersReturnsAll() throws Exception {
         Modifier cheese = new Modifier("Extra cheese", new BigDecimal("1.50"));
         Modifier onions = new Modifier("No onions", BigDecimal.ZERO);
-        when(modifierService.getAllModifiers()).thenReturn(List.of(cheese, onions));
+        when(modifierService.getAllModifiers(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(cheese, onions)));
 
         mockMvc.perform(get("/api/v1/modifiers"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].name").value("Extra cheese"))
-                .andExpect(jsonPath("$[0].priceAdjustment").value(1.50))
-                .andExpect(jsonPath("$[0].active").value(true))
-                .andExpect(jsonPath("$[1].name").value("No onions"));
+                .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].name").value("Extra cheese"))
+                .andExpect(jsonPath("$.content[0].priceAdjustment").value(1.50))
+                .andExpect(jsonPath("$.content[0].active").value(true))
+                .andExpect(jsonPath("$.content[1].name").value("No onions"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     // --- GET /api/v1/modifiers/{id} ---
